@@ -74,7 +74,7 @@ def replace_sections(cur, law_id: int, document_law_id: int, sections, embedding
         cur.execute(
             """insert into sections (law_id, document_law_id, seq, section_num, heading, chapter,
                                      content, content_hash, embedding)
-               values (%s,%s,%s,%s,%s,%s,%s,%s,%s::vector)""",
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s::extensions.vector)""",
             (law_id, document_law_id, s.seq, s.section_num, s.heading, s.chapter,
              s.content, s.content_hash, _vec(e)),
         )

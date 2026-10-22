@@ -10,8 +10,10 @@
 -- Search: hybrid = Hebrew-aware keyword search (trigram + 'simple' full text,
 -- since Postgres has no Hebrew dictionary) fused with vector similarity (RRF).
 
-create extension if not exists vector;
-create extension if not exists pg_trgm;
+-- Supabase keeps extensions in their own schema
+create schema if not exists extensions;
+create extension if not exists vector with schema extensions;
+create extension if not exists pg_trgm with schema extensions;
 
 -- ---------------------------------------------------------------- laws
 create table if not exists laws (
@@ -61,14 +63,14 @@ create table if not exists sections (
     chapter         text,                            -- "פרק ב': ..." if known
     content         text not null,                   -- verbatim extracted text
     content_hash    text not null,
-    embedding       vector(1024),
+    embedding       extensions.vector(1024),
     fts             tsvector generated always as (to_tsvector('simple', coalesce(heading,'') || ' ' || content)) stored,
     unique (document_law_id, seq)
 );
 create index if not exists sections_law_idx  on sections(law_id);
 create index if not exists sections_fts_idx  on sections using gin(fts);
-create index if not exists sections_trgm_idx on sections using gin(content gin_trgm_ops);
-create index if not exists sections_vec_idx  on sections using hnsw (embedding vector_cosine_ops);
+create index if not exists sections_trgm_idx on sections using gin(content extensions.gin_trgm_ops);
+create index if not exists sections_vec_idx  on sections using hnsw (embedding extensions.vector_cosine_ops);
 
 -- ---------------------------------------------------------------- ingestion log
 create table if not exists ingest_runs (
@@ -84,7 +86,7 @@ create table if not exists ingest_runs (
 -- section text plus everything needed to cite it.
 create or replace function search_sections(
     query_text      text,
-    query_embedding vector(1024),
+    query_embedding extensions.vector(1024),
     match_count     int default 8,
     law_filter      bigint default null,
     rrf_k           int default 50
@@ -94,7 +96,9 @@ returns table (
     chapter text, content text, validity_desc text, publication_date timestamptz,
     file_url text, score float
 )
-language sql stable as $$
+language sql stable
+set search_path = public, extensions
+as $$
 with kw as (
     select s.id,
            row_number() over (order by
@@ -133,7 +137,9 @@ $$;
 -- Fetch one section with its neighbours (definitions / exceptions often sit next door).
 create or replace function get_section(p_law_id bigint, p_section_num text, p_context int default 1)
 returns table (seq int, section_num text, heading text, chapter text, content text, file_url text)
-language sql stable as $$
+language sql stable
+set search_path = public, extensions
+as $$
 with target as (
     select document_law_id, seq from sections
     where law_id = p_law_id and section_num = p_section_num
@@ -147,7 +153,10 @@ where s.seq between t.seq - p_context and t.seq + p_context
 order by s.seq;
 $$;
 
--- Public read access only through these functions; tables stay private.
+-- Locked down: no public (anon) access at all. Only our backend, connecting
+-- with the database credentials, reads this data.
+revoke execute on function search_sections(text, extensions.vector, int, bigint, int) from public, anon, authenticated;
+revoke execute on function get_section(bigint, text, int) from public, anon, authenticated;
 alter table laws enable row level security;
 alter table documents enable row level security;
 alter table sections enable row level security;
