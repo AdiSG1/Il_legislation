@@ -9,23 +9,54 @@ from __future__ import annotations
 import json
 import os
 import ssl
+from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 import pg8000.dbapi
+
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def find_root_cert() -> Path | None:
+    """Supabase signs database connections with its own root certificate.
+
+    Download it once (Supabase -> Project Settings -> Database -> SSL Configuration ->
+    Download certificate) into the project folder, or point SSL_ROOT_CERT at it.
+    """
+    env = os.environ.get("SSL_ROOT_CERT")
+    if env:
+        return Path(env)
+    found = sorted([*ROOT.glob("*.crt"), *ROOT.glob("*.cer"), *ROOT.glob("*.pem")])
+    return found[0] if found else None
+
+
+def ssl_context() -> ssl.SSLContext:
+    ctx = ssl.create_default_context()           # full verification, never disabled
+    cert = find_root_cert()
+    if cert:
+        ctx.load_verify_locations(cafile=str(cert))
+    return ctx
 
 
 def connect():
     """Connect from DATABASE_URL (postgresql://user:password@host:port/dbname)."""
     u = urlparse(os.environ["DATABASE_URL"])
     local = u.hostname in ("localhost", "127.0.0.1")
-    return pg8000.dbapi.connect(
-        user=unquote(u.username or "postgres"),
-        password=unquote(u.password) if u.password else None,
-        host=u.hostname,
-        port=u.port or 5432,
-        database=(u.path or "/postgres").lstrip("/") or "postgres",
-        ssl_context=None if local else ssl.create_default_context(),
-    )
+    try:
+        return pg8000.dbapi.connect(
+            user=unquote(u.username or "postgres"),
+            password=unquote(u.password) if u.password else None,
+            host=u.hostname,
+            port=u.port or 5432,
+            database=(u.path or "/postgres").lstrip("/") or "postgres",
+            ssl_context=None if local else ssl_context(),
+        )
+    except ssl.SSLCertVerificationError as exc:
+        hint = ("No Supabase certificate file found in the project folder. Download it: Supabase -> "
+                "Project Settings -> Database -> SSL Configuration -> Download certificate, and save "
+                f"it into {ROOT}") if not find_root_cert() else f"Certificate used: {find_root_cert()}"
+        raise SystemExit(f"Secure connection to the database could not be verified.\n{hint}\n({exc})")
 
 
 def _vec(v: list[float] | None) -> str | None:

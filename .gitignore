@@ -6,3 +6,6 @@ data/
 out/
 .pytest_cache/
 keys.txt
+*.crt
+*.cer
+*.pem
