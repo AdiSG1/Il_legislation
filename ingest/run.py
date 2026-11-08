@@ -1,12 +1,20 @@
-"""Ingestion: Knesset OData -> official PDFs -> Hebrew text -> sections -> Supabase.
+"""Ingestion.
+
+For every law in force (Knesset OData, KNS_IsraelLaw):
+  1. ask the Knesset website for the law's official amendment list and its
+     "לחוק המלא" link,
+  2. if that link goes to Hebrew Wikisource, fetch that page (pinned revision),
+  3. check that every official amendment PDF is cited by the text
+       verified  -> index the text
+       outdated  -> do NOT index; record which amendments are missing
+  4. split into sections and store (with embeddings).
+
+Laws with no Knesset "full law" link are recorded as no_text.
 
 Examples
-  # look at a few laws without touching the database (writes ./out/*.json for review)
-  python -m ingest.run --dry-run --name "שירות הביטחון הכללי"
-  python -m ingest.run --dry-run --limit 5
-
-  # full run (needs DATABASE_URL and VOYAGE_API_KEY)
-  python -m ingest.run
+  python -m ingest.run --dry-run --name "הבחירות לכנסת"      # no accounts needed, writes ./out
+  python -m ingest.run --dry-run --limit 10
+  python -m ingest.run                                        # needs DATABASE_URL, VOYAGE_API_KEY
 """
 
 from __future__ import annotations
@@ -18,44 +26,45 @@ import pathlib
 import sys
 import traceback
 
-from .extract import extract_pdf
+from .knesset_site import KnessetSite, verify
 from .odata import GeoBlockedError, KnessetOData
-from .sections import split_sections
+from .wikisource import Wikisource, title_from_url
+from .wikitext import parse_law
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-PDF_DIR = ROOT / "data" / "pdfs"
 OUT_DIR = ROOT / "out"
 
 
-def pick_document(docs: list[dict]) -> dict | None:
-    pdfs = [d for d in docs if (d.get("FilePath") or "").lower().endswith(".pdf")]
-    pdfs.sort(key=lambda d: d.get("LastUpdatedDate") or "", reverse=True)
-    return pdfs[0] if pdfs else None
-
-
-def registry_match(api: KnessetOData, name: str) -> dict | None:
-    """KNS_IsraelLaw has no official join to KNS_Law, so match on the exact name only."""
-    try:
-        rows = api.registry_search(name)
-    except Exception:
-        return None
-    exact = [r for r in rows if (r.get("Name") or "").strip() == name.strip()]
-    return exact[0] if len(exact) == 1 else None
+def process(reg: dict, site: KnessetSite, wiki: Wikisource):
+    """Returns (item, status, note, page, parsed)."""
+    item = site.law_item(reg["IsraelLawID"])
+    if not item.open_book_url:
+        return item, "no_text", {"reason": "the Knesset page has no full-law link"}, None, None
+    title = title_from_url(item.open_book_url)
+    if not title:
+        return item, "no_text", {"reason": "full-law link is not Hebrew Wikisource", "url": item.open_book_url}, None, None
+    page = wiki.page(title)
+    parsed = parse_law(page.wikitext)
+    if parsed.israel_law_id and parsed.israel_law_id != reg["IsraelLawID"]:
+        return item, "error", {"reason": "Wikisource page belongs to a different law",
+                               "page_law_id": parsed.israel_law_id}, page, parsed
+    status, note = verify(item, parsed.cited_pdf_ids)
+    note.update({"wikisource_revision": page.revision_id, "revision_time": page.revision_time})
+    return item, status, note, page, parsed
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--name", help="only laws whose name contains this text")
     ap.add_argument("--limit", type=int, default=0, help="stop after N laws (0 = all)")
-    ap.add_argument("--dry-run", action="store_true", help="no database, no embeddings; write ./out/*.json")
-    ap.add_argument("--force", action="store_true", help="re-index even if the PDF did not change")
+    ap.add_argument("--dry-run", action="store_true", help="no database or embeddings; write ./out")
+    ap.add_argument("--force", action="store_true", help="re-index even if the text did not change")
     args = ap.parse_args(argv)
 
-    api = KnessetOData()
-    PDF_DIR.mkdir(parents=True, exist_ok=True)
+    odata, site, wiki = KnessetOData(), KnessetSite(), Wikisource()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    conn = cur = None
+    conn = cur = run_id = None
     if not args.dry_run:
         from . import store
         from .embed import embed_documents
@@ -66,53 +75,58 @@ def main(argv: list[str] | None = None) -> int:
         conn.commit()
 
     seen = changed = written = 0
+    counts: dict[str, int] = {}
     errors: list[dict] = []
     try:
-        for law in api.consolidated_laws(args.name):
+        for reg in odata.in_force_laws(args.name):
             if args.limit and seen >= args.limit:
                 break
             seen += 1
-            law_id, name = law["LawID"], (law.get("Name") or "").strip()
+            law_id, name = reg["IsraelLawID"], (reg.get("Name") or "").strip()
             try:
-                doc = pick_document(api.law_documents(law_id))
-                if not doc:
-                    errors.append({"law_id": law_id, "name": name, "error": "no PDF document"})
-                    continue
-
-                pdf = api.download(doc["FilePath"])
-                sha = hashlib.sha256(pdf).hexdigest()
-                (PDF_DIR / f"{doc['DocumentLawID']}_{sha[:12]}.pdf").write_bytes(pdf)
-
-                if cur is not None and not args.force and store.document_hash(cur, doc["DocumentLawID"]) == sha:
-                    print(f"= {law_id} {name} (unchanged)")
-                    continue
-
-                ext = extract_pdf(pdf)
-                secs = split_sections(ext.text) if ext.text else []
-                print(f"+ {law_id} {name}: {ext.status}, {len(secs)} sections")
+                item, status, note, page, parsed = process(reg, site, wiki)
+                counts[status] = counts.get(status, 0) + 1
+                n_secs = len(parsed.sections) if parsed else 0
+                print(f"{status:9} {law_id} {name} ({n_secs} sections)")
+                if status == "outdated":
+                    for m in note["missing"][:3]:
+                        print(f"          missing: {m['name']} ({(m['date'] or '')[:10]})")
 
                 if args.dry_run:
                     (OUT_DIR / f"{law_id}.json").write_text(json.dumps({
-                        "law": law, "document": doc, "sha256": sha,
-                        "extraction": {"status": ext.status, "note": ext.note},
-                        "sections": [s.__dict__ for s in secs],
+                        "registry": reg, "status": status, "note": note,
+                        "knesset_page": item.page_url, "open_book_url": item.open_book_url,
+                        "amendments": [a.__dict__ for a in item.amendments],
+                        "wikisource": page and {"title": page.title, "revision": page.revision_id,
+                                                "time": page.revision_time, "permalink": page.permalink},
+                        "sections": [s.__dict__ for s in parsed.sections] if parsed else [],
                     }, ensure_ascii=False, indent=2), encoding="utf-8")
-                    (OUT_DIR / f"{law_id}.txt").write_text(ext.text, encoding="utf-8")
+                    if parsed:
+                        (OUT_DIR / f"{law_id}.txt").write_text(
+                            "\n\n".join(f"[{s.anchor or ''} | {s.chapter or ''}]\n{s.content}" for s in parsed.sections),
+                            encoding="utf-8")
                     continue
 
-                reg = registry_match(api, name)
-                embeddings = embed_documents(
-                    [f"{name}\n{s.heading or ''}\n{s.content}" for s in secs]) if secs else []
-                store.upsert_law(cur, law, api.entity_url("KNS_Law", law_id), reg)
-                store.upsert_document(cur, doc, sha, len(pdf), ext.status, ext.note)
-                written += store.replace_sections(cur, law_id, doc["DocumentLawID"], secs, embeddings)
+                cited = parsed.cited_pdf_ids if parsed else set()
+                store.upsert_law(cur, reg, item, status, note)
+                store.replace_amendments(cur, law_id, item.amendments, cited)
+                if status == "verified":
+                    sha = hashlib.sha256(page.wikitext.encode("utf-8")).hexdigest()
+                    if args.force or store.stored_text_hash(cur, law_id) != sha:
+                        secs = parsed.sections
+                        emb = embed_documents([f"{name}\n{s.chapter or ''}\n{s.content}" for s in secs]) if secs else []
+                        store.upsert_text(cur, law_id, page, sha)
+                        written += store.replace_sections(cur, law_id, secs, emb)
+                        changed += 1
+                else:
+                    store.drop_text(cur, law_id)   # never answer from an unverified text
                 conn.commit()
-                changed += 1
             except GeoBlockedError:
                 raise
             except Exception as exc:  # one bad law must not stop the run
                 if conn is not None:
                     conn.rollback()
+                counts["error"] = counts.get("error", 0) + 1
                 errors.append({"law_id": law_id, "name": name, "error": f"{type(exc).__name__}: {exc}"})
                 traceback.print_exc()
     except GeoBlockedError as exc:
@@ -128,10 +142,12 @@ def main(argv: list[str] | None = None) -> int:
             conn.commit()
             conn.close()
 
-    print(f"\nlaws seen {seen}, changed {changed}, sections written {written}, errors {len(errors)}")
+    print(f"\nlaws seen {seen}: " + ", ".join(f"{k} {v}" for k, v in sorted(counts.items())))
+    if not args.dry_run:
+        print(f"texts (re)indexed {changed}, sections written {written}")
     for e in errors[:20]:
         print("  !", e)
-    return 1 if errors and not changed and not args.dry_run else 0
+    return 0
 
 
 if __name__ == "__main__":

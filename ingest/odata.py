@@ -70,6 +70,13 @@ class KnessetOData:
         return text.replace("'", "''")
 
     # -------------------------------------------------------------- entities
+    def in_force_laws(self, name_contains: str | None = None) -> Iterator[dict]:
+        """The law registry (KNS_IsraelLaw), laws currently in force only."""
+        flt = "LawValidityDesc eq 'תקף'"
+        if name_contains:
+            flt += f" and substringof('{self._q(name_contains)}',Name)"
+        yield from self._iter("KNS_IsraelLaw", {"$filter": flt, "$orderby": "IsraelLawID"})
+
     def consolidated_laws(self, name_contains: str | None = None) -> Iterator[dict]:
         flt = "substringof('משולב',SubTypeDesc)"
         if name_contains:

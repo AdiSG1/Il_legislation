@@ -1,4 +1,4 @@
-"""Write laws, documents and sections to Postgres (Supabase).
+"""Write laws, official amendments, texts and sections to Postgres (Supabase).
 
 Uses pg8000, a pure-Python driver, so it installs on any Python version and
 on Windows without extra system libraries.
@@ -32,66 +32,77 @@ def _vec(v: list[float] | None) -> str | None:
     return None if v is None else "[" + ",".join(f"{x:.7f}" for x in v) + "]"
 
 
-def upsert_law(cur, row: dict, odata_url: str, registry: dict | None) -> None:
-    reg = registry or {}
-    cur.execute(
-        """
-        insert into laws (law_id, name, type_desc, sub_type_desc, knesset_num, publication_date,
-                          publication_series_desc, magazine_number, israel_law_id, is_basic_law,
-                          validity_desc, latest_publication_date, odata_url, raw, fetched_at)
-        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
-        on conflict (law_id) do update set
-          name=excluded.name, type_desc=excluded.type_desc, sub_type_desc=excluded.sub_type_desc,
-          knesset_num=excluded.knesset_num, publication_date=excluded.publication_date,
-          publication_series_desc=excluded.publication_series_desc, magazine_number=excluded.magazine_number,
-          israel_law_id=excluded.israel_law_id, is_basic_law=excluded.is_basic_law,
-          validity_desc=excluded.validity_desc, latest_publication_date=excluded.latest_publication_date,
-          odata_url=excluded.odata_url, raw=excluded.raw, fetched_at=now()
-        """,
-        (
-            row["LawID"], row.get("Name") or "", row.get("TypeDesc"), row.get("SubTypeDesc"),
-            row.get("KnessetNum"), row.get("PublicationDate"), row.get("PublicationSeriesDesc"),
-            row.get("MagazineNumber"), reg.get("IsraelLawID") or reg.get("Id"), reg.get("IsBasicLaw"),
-            reg.get("LawValidityDesc"), reg.get("LatestPublicationDate"), odata_url, json.dumps(row, ensure_ascii=False),
-        ),
-    )
-
-
-def document_hash(cur, document_law_id: int) -> str | None:
-    cur.execute("select sha256 from documents where document_law_id=%s", (document_law_id,))
+def stored_text_hash(cur, israel_law_id: int) -> str | None:
+    cur.execute("select sha256 from texts where israel_law_id=%s", (israel_law_id,))
     r = cur.fetchone()
     return r[0] if r else None
 
 
-def upsert_document(cur, row: dict, sha256: str, size: int, status: str, note: str) -> None:
+def upsert_law(cur, registry: dict, item, status: str, note: dict | None) -> None:
+    raw = {"odata": registry, "site": item.raw_general if item else None}
     cur.execute(
         """
-        insert into documents (document_law_id, law_id, group_type_desc, application_desc, file_url,
-                               sha256, byte_size, downloaded_at, extraction_status, extraction_note,
-                               last_updated_date, raw)
-        values (%s,%s,%s,%s,%s,%s,%s, now(), %s,%s,%s,%s)
-        on conflict (document_law_id) do update set
-          file_url=excluded.file_url, sha256=excluded.sha256, byte_size=excluded.byte_size,
-          downloaded_at=now(), extraction_status=excluded.extraction_status,
-          extraction_note=excluded.extraction_note, last_updated_date=excluded.last_updated_date,
-          raw=excluded.raw
+        insert into laws (israel_law_id, name, is_basic_law, validity_desc, publication_date,
+                          latest_publication_date, knesset_url, open_book_url, text_status, text_note,
+                          raw, fetched_at)
+        values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
+        on conflict (israel_law_id) do update set
+          name=excluded.name, is_basic_law=excluded.is_basic_law, validity_desc=excluded.validity_desc,
+          publication_date=excluded.publication_date, latest_publication_date=excluded.latest_publication_date,
+          knesset_url=excluded.knesset_url, open_book_url=excluded.open_book_url,
+          text_status=excluded.text_status, text_note=excluded.text_note, raw=excluded.raw, fetched_at=now()
         """,
         (
-            row["DocumentLawID"], row["LawID"], row.get("GroupTypeDesc"), row.get("ApplicationDesc"),
-            row["FilePath"], sha256, size, status, note, row.get("LastUpdatedDate"),
-            json.dumps(row, ensure_ascii=False),
+            registry["IsraelLawID"], (registry.get("Name") or "").strip(), registry.get("IsBasicLaw"),
+            registry.get("LawValidityDesc"), registry.get("PublicationDate"),
+            (item.latest_publication_date if item else None) or registry.get("LatestPublicationDate"),
+            f"https://main.knesset.gov.il/apps/legislation/main/laws/{registry['IsraelLawID']}",
+            item.open_book_url if item else None, status,
+            json.dumps(note, ensure_ascii=False) if note is not None else None,
+            json.dumps(raw, ensure_ascii=False),
         ),
     )
 
 
-def replace_sections(cur, law_id: int, document_law_id: int, sections, embeddings) -> int:
-    cur.execute("delete from sections where document_law_id=%s", (document_law_id,))
+def replace_amendments(cur, israel_law_id: int, amendments, cited_ids: set[str]) -> None:
+    cur.execute("delete from amendments where israel_law_id=%s", (israel_law_id,))
+    for a in amendments:
+        cur.execute(
+            """insert into amendments (israel_law_id, number, name, kind, publication_date, series,
+                                       magazine, page, pdf_url, summary, in_text)
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
+            (israel_law_id, a.number, a.name, a.kind, a.publication_date, a.series, a.magazine,
+             a.page, a.pdf_url, a.summary, (a.pdf_id in cited_ids) if a.pdf_id else None),
+        )
+
+
+def upsert_text(cur, israel_law_id: int, page, sha256: str) -> None:
+    cur.execute(
+        """
+        insert into texts (israel_law_id, source, title, revision_id, revision_time, permalink, sha256, fetched_at)
+        values (%s,'wikisource',%s,%s,%s,%s,%s, now())
+        on conflict (israel_law_id) do update set
+          title=excluded.title, revision_id=excluded.revision_id, revision_time=excluded.revision_time,
+          permalink=excluded.permalink, sha256=excluded.sha256, fetched_at=now()
+        """,
+        (israel_law_id, page.title, page.revision_id, page.revision_time, page.permalink, sha256),
+    )
+
+
+def replace_sections(cur, israel_law_id: int, sections, embeddings) -> int:
+    cur.execute("delete from sections where israel_law_id=%s", (israel_law_id,))
     for s, e in zip(sections, embeddings):
         cur.execute(
-            """insert into sections (law_id, document_law_id, seq, section_num, heading, chapter,
-                                     content, content_hash, embedding)
-               values (%s,%s,%s,%s,%s,%s,%s,%s,%s::extensions.vector)""",
-            (law_id, document_law_id, s.seq, s.section_num, s.heading, s.chapter,
-             s.content, s.content_hash, _vec(e)),
+            """insert into sections (israel_law_id, seq, section_num, anchor, heading, chapter,
+                                     amended_by, content, content_hash, embedding)
+               values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s::extensions.vector)""",
+            (israel_law_id, s.seq, s.section_num, s.anchor, s.heading, s.chapter,
+             s.amended_by, s.content, s.content_hash, _vec(e)),
         )
     return len(sections)
+
+
+def drop_text(cur, israel_law_id: int) -> None:
+    """Remove indexed text for a law whose text can no longer be used."""
+    cur.execute("delete from sections where israel_law_id=%s", (israel_law_id,))
+    cur.execute("delete from texts where israel_law_id=%s", (israel_law_id,))
