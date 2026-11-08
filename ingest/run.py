@@ -35,6 +35,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "out"
 
 
+def load_env_file(path: pathlib.Path = ROOT / ".env") -> None:
+    """Read KEY=value lines from a local .env file (never committed) into the environment."""
+    import os
+    if not path.exists():
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
 def process(reg: dict, site: KnessetSite, wiki: Wikisource):
     """Returns (item, status, note, page, parsed)."""
     item = site.law_item(reg["IsraelLawID"])
@@ -66,6 +79,13 @@ def main(argv: list[str] | None = None) -> int:
 
     conn = cur = run_id = None
     if not args.dry_run:
+        import os
+        load_env_file()
+        missing = [k for k in ("DATABASE_URL", "VOYAGE_API_KEY") if not os.environ.get(k)]
+        if missing:
+            print(f"Missing {', '.join(missing)}. Put them in the file {ROOT / '.env'} "
+                  "(one per line: NAME=value).", file=sys.stderr)
+            return 2
         from . import store
         from .embed import embed_documents
         conn = store.connect()
