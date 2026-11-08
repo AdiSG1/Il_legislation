@@ -38,7 +38,13 @@ class KnessetOData:
     # -------------------------------------------------------------- low level
     def _get(self, url: str, params: dict | None = None) -> dict:
         for attempt in range(4):
-            resp = self.http.get(url, params=params, timeout=60)
+            try:
+                resp = self.http.get(url, params=params, timeout=60)
+            except (requests.ConnectionError, requests.Timeout):
+                if attempt == 3:
+                    raise
+                time.sleep(2 ** attempt)
+                continue
             if "maintenance-page-geo" in resp.url:
                 raise GeoBlockedError(
                     "Knesset site refused this location. Run ingestion from an Israeli IP."

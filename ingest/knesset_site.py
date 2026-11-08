@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 
 import requests
 
+from .http import get
+
 API = "https://www.knesset.gov.il/WebSiteApi/knessetapi/LegislationItem/GetLegislationLawItem"
 LAW_PAGE = "https://main.knesset.gov.il/apps/legislation/main/laws/{id}"
 USER_AGENT = "Il_legislation-ingest/0.2 (public legislation Q&A)"
@@ -65,13 +67,7 @@ class KnessetSite:
         self.http.headers.update({"User-Agent": USER_AGENT, "Accept": "application/json"})
 
     def law_item(self, israel_law_id: int) -> LawItem:
-        for attempt in range(4):
-            r = self.http.get(API, params={"ItemId": int(israel_law_id)}, timeout=60)
-            if r.status_code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(2 ** attempt)
-                continue
-            r.raise_for_status()
-            break
+        r = get(self.http, API, params={"ItemId": int(israel_law_id)})
         time.sleep(self.pause)
         data = r.json()
         g = data.get("general") or {}

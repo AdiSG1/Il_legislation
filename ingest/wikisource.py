@@ -12,6 +12,8 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
+from .http import get
+
 API = "https://he.wikisource.org/w/api.php"
 # Wikimedia asks automated clients to identify themselves
 USER_AGENT = "Il_legislation-ingest/0.2 (public legislation Q&A; github.com/AdiSG1/Il_legislation)"
@@ -48,13 +50,7 @@ class Wikisource:
             "prop": "revisions", "rvprop": "ids|timestamp|content", "rvslots": "main",
             "titles": title,
         }
-        for attempt in range(4):
-            r = self.http.get(API, params=params, timeout=60)
-            if r.status_code in (429, 500, 502, 503, 504) and attempt < 3:
-                time.sleep(2 ** attempt * 2)
-                continue
-            r.raise_for_status()
-            break
+        r = get(self.http, API, params=params)
         time.sleep(self.pause)
         p = r.json()["query"]["pages"][0]
         if p.get("missing"):
