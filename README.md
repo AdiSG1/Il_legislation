@@ -33,7 +33,7 @@ ingestion from a computer in Israel (or a cloud region in Israel).
 
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements.txt          # works on any recent Python, including 3.14+
 python -m pytest -q
 
 # 1. look at the text quality of a few laws - no accounts needed

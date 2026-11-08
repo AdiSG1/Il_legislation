@@ -1,15 +1,31 @@
-"""Write laws, documents and sections to Postgres (Supabase)."""
+"""Write laws, documents and sections to Postgres (Supabase).
+
+Uses pg8000, a pure-Python driver, so it installs on any Python version and
+on Windows without extra system libraries.
+"""
 
 from __future__ import annotations
 
 import json
 import os
+import ssl
+from urllib.parse import unquote, urlparse
 
-import psycopg
+import pg8000.dbapi
 
 
-def connect() -> psycopg.Connection:
-    return psycopg.connect(os.environ["DATABASE_URL"], autocommit=False)
+def connect():
+    """Connect from DATABASE_URL (postgresql://user:password@host:port/dbname)."""
+    u = urlparse(os.environ["DATABASE_URL"])
+    local = u.hostname in ("localhost", "127.0.0.1")
+    return pg8000.dbapi.connect(
+        user=unquote(u.username or "postgres"),
+        password=unquote(u.password) if u.password else None,
+        host=u.hostname,
+        port=u.port or 5432,
+        database=(u.path or "/postgres").lstrip("/") or "postgres",
+        ssl_context=None if local else ssl.create_default_context(),
+    )
 
 
 def _vec(v: list[float] | None) -> str | None:
