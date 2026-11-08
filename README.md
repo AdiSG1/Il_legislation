@@ -10,7 +10,7 @@ on fs.knesset.gov.il). No news, no social media, no web search.
 |---|---|
 | Database schema + hybrid search (`db/schema.sql`) | ready |
 | Ingestion: Knesset list + amendments → Wikisource text (verified) → sections → DB (`ingest/`) | ready, first real run pending |
-| Agent (system prompt, tools, quote check) | next |
+| Agent: Supabase Edge Function `ask` (`supabase/functions/ask/`) - Hebrew prompt, 4 read-only tools, verbatim-quote check, limits, audit log | built, not deployed yet |
 | Backend API, website, scheduled refresh | later |
 
 ## Data sources
