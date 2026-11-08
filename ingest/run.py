@@ -35,12 +35,14 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "out"
 
 
-def load_env_file(path: pathlib.Path = ROOT / ".env") -> None:
-    """Read KEY=value lines from a local .env file (never committed) into the environment."""
+KEY_FILES = (ROOT / "keys.txt", ROOT / ".env")   # local only, both are in .gitignore
+
+
+def load_env_file() -> None:
+    """Read NAME=value lines from keys.txt (or .env) into the environment."""
     import os
-    if not path.exists():
-        return
-    for line in path.read_text(encoding="utf-8-sig").splitlines():
+    lines = [l for p in KEY_FILES if p.exists() for l in p.read_text(encoding="utf-8-sig").splitlines()]
+    for line in lines:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -83,7 +85,7 @@ def main(argv: list[str] | None = None) -> int:
         load_env_file()
         missing = [k for k in ("DATABASE_URL", "VOYAGE_API_KEY") if not os.environ.get(k)]
         if missing:
-            print(f"Missing {', '.join(missing)}. Put them in the file {ROOT / '.env'} "
+            print(f"Missing {', '.join(missing)}. Put them in the file {KEY_FILES[0]} "
                   "(one per line: NAME=value).", file=sys.stderr)
             return 2
         from . import store
