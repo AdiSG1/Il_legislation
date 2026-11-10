@@ -106,7 +106,7 @@ type Seen = Map<number, SectionText & { law_id: number; law_name: string; sectio
 async function embedQuery(text: string): Promise<number[]> {
   const r = await fetch("https://api.voyageai.com/v1/embeddings", {
     method: "POST",
-    headers: { Authorization: `Bearer ${env("VOYAGE_API_KEY")}`, "content-type": "application/json" },
+    headers: { Authorization: `Bearer ${env("VOYAGE_API_KEY").trim()}`, "content-type": "application/json" },
     body: JSON.stringify({ input: [text], model: "voyage-3.5", input_type: "query", output_dimension: 1024 }),
   });
   if (!r.ok) throw new Error(`voyage ${r.status}`);
@@ -185,7 +185,7 @@ async function claude(messages: unknown[], usage: Usage) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
-      "x-api-key": env("ANTHROPIC_API_KEY"),
+      "x-api-key": env("ANTHROPIC_API_KEY").trim(),
       "anthropic-version": ANTHROPIC_VERSION,
       "content-type": "application/json",
     },
@@ -289,6 +289,14 @@ Deno.serve(async (req) => {
   if (allowed === false) {
     await db.from("qa_log").insert({ question, outcome: "limited", duration_ms: Date.now() - started });
     return new Response(JSON.stringify({ error: "הגעת למגבלת השאלות. נסה שוב מאוחר יותר." }), { status: 429, headers });
+  }
+
+  // configuration check: report missing secret NAMES only, never values
+  const missing = ["ANTHROPIC_API_KEY", "VOYAGE_API_KEY", "IP_HASH_SALT"].filter((k) => !env(k).trim());
+  if (missing.length) {
+    await db.from("qa_log").insert({ question, outcome: "error", duration_ms: Date.now() - started,
+      answer: { error: `missing secrets: ${missing.join(", ")}`, secret_names_seen: Object.keys(Deno.env.toObject()).filter((k) => !k.startsWith("SUPABASE_")).sort() } });
+    return new Response(JSON.stringify({ error: "השירות אינו מוגדר עדיין." }), { status: 503, headers });
   }
 
   const usage: Usage = { input: 0, output: 0 };
