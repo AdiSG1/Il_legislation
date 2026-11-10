@@ -8,7 +8,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { DISCLAIMER, SYSTEM_PROMPT } from "./prompt.ts";
-import { checkCitations, type Citation, type SectionText } from "./verify.ts";
+import { checkCitations, unsupportedNumbers, type Citation, type SectionText } from "./verify.ts";
 
 const env = (k: string, d = "") => Deno.env.get(k) ?? d;
 const MODEL = env("CLAUDE_MODEL", "claude-sonnet-5-5");
@@ -167,13 +167,22 @@ async function runTool(name: string, input: Record<string, unknown>, seen: Seen)
   if (name === "law_info") {
     const lawId = Number(input.law_id);
     const { data: law } = await db.from("laws")
-      .select("israel_law_id, name, is_basic_law, validity_desc, text_status, latest_publication_date, knesset_url")
+      .select("israel_law_id, name, is_basic_law, validity_desc, text_status, publication_date, knesset_url")
       .eq("israel_law_id", lawId).single();
     const { data: am, error } = await db.rpc("law_amendments", {
       p_law_id: lawId, p_limit: Math.min(Number(input.limit ?? 5), 15),
     });
     if (error) throw error;
-    return { law, amendments: am };
+    // the Knesset's list includes the original law itself ("(החוק המקורי)"); only later items are amendments
+    const fmt = (d: string | null) => (d ? `${+d.slice(8, 10)}.${+d.slice(5, 7)}.${d.slice(0, 4)}` : null);
+    const amendments = ((am ?? []) as { publication_date: string | null; name: string }[])
+      .filter((a) => !law?.publication_date || !a.publication_date || a.publication_date.slice(0, 10) > String(law.publication_date).slice(0, 10))
+      .map((a) => ({ ...a, publication_date: fmt(a.publication_date) }));
+    return {
+      law: law && { ...law, original_publication_date: fmt(law.publication_date), publication_date: undefined },
+      amendments_after_original: amendments,
+      note: amendments.length ? undefined : "לא נמצאו תיקונים לאחר הפרסום המקורי",
+    };
   }
   return { error: `unknown tool ${name}` };
 }
@@ -205,13 +214,22 @@ interface Answer { outcome: string; answer: string; citations: Citation[] }
 
 async function answerQuestion(question: string, history: { role: string; content: string }[], usage: Usage) {
   const seen: Seen = new Map();
+  let sourceText = "";            // everything the tools returned: the only allowed source of numbers
   const messages: unknown[] = [
     ...history.slice(-6).map((h) => ({ role: h.role === "assistant" ? "assistant" : "user", content: String(h.content).slice(0, 4000) })),
     { role: "user", content: question },
   ];
   let retries = 0;
   let nudged = false;
+  const debug: { attempts: number; last_bad?: unknown; reason?: string } = { attempts: 0 };
   for (let step = 0; step < MAX_STEPS + MAX_ANSWER_RETRIES; step++) {
+    if (step === MAX_STEPS - 1 && debug.attempts === 0) {
+      // last research step: make sure an answer gets submitted
+      const last = messages[messages.length - 1] as { role: string; content: unknown };
+      if (last.role === "user" && Array.isArray(last.content)) {
+        (last.content as unknown[]).push({ type: "text", text: "זהו הצעד האחרון לחיפוש. הגש עכשיו תשובה עם submit_answer על סמך מה שכבר מצאת." });
+      }
+    }
     const res = await claude(messages, usage);
     messages.push({ role: "assistant", content: res.content });
     const calls = (res.content as { type: string; id: string; name: string; input: Record<string, unknown> }[])
@@ -230,27 +248,38 @@ async function answerQuestion(question: string, history: { role: string; content
         const checks = checkCitations(ans.citations ?? [], seen);
         const bad = checks.filter((c) => !c.ok);
         const needsQuotes = ans.outcome === "answered" && !(ans.citations?.length);
-        if ((bad.length || needsQuotes) && retries < MAX_ANSWER_RETRIES) {
+        const numbers = unsupportedNumbers(ans.answer ?? "", sourceText);
+        debug.attempts++;
+        debug.last_bad = { quotes: bad.map((b) => ({ id: b.section_id, reason: b.reason, quote: b.quote.slice(0, 120) })), numbers, needsQuotes };
+        if ((bad.length || needsQuotes || numbers.length) && retries < MAX_ANSWER_RETRIES) {
           retries++;
-          results.push({ type: "tool_result", tool_use_id: call.id, is_error: true,
-            content: needsQuotes
-              ? "תשובה מסוג answered חייבת לכלול לפחות ציטוט אחד מסעיף שקיבלת."
-              : "הציטוטים הבאים אינם מופיעים מילה במילה בסעיף שצוין, או שהסעיף לא התקבל מהכלים. תקן והגש שוב:\n" +
-                bad.map((b) => `- section_id ${b.section_id}: "${b.quote}" (${b.reason})`).join("\n") });
+          const problems: string[] = [];
+          if (needsQuotes) problems.push("תשובה מסוג answered חייבת לכלול לפחות ציטוט אחד מסעיף שקיבלת.");
+          if (bad.length) problems.push("הציטוטים הבאים אינם מופיעים מילה במילה בסעיף שצוין, או שהסעיף לא התקבל מהכלים:\n" +
+            bad.map((b) => `- section_id ${b.section_id}: "${b.quote}" (${b.reason})`).join("\n"));
+          if (numbers.length) problems.push(`המספרים/התאריכים הבאים בהסבר אינם מופיעים בשום תוצאה של הכלים: ${numbers.join(", ")}. הסר אותם או תקן לפי המקור; אם המקור כותב מספר במילים, כתוב אותו במילים כמו במקור.`);
+          results.push({ type: "tool_result", tool_use_id: call.id, is_error: true, content: problems.join("\n") + "\nתקן והגש שוב." });
           continue;
         }
-        return { ans, checks, seen, verified: bad.length === 0 && !needsQuotes };
+        // Out of retries: keep the answer only if its numbers check out and at least one quote is
+        // verified (or it legitimately has none); unverified quotes are dropped, never shown.
+        const good = checks.filter((c) => c.ok);
+        const usable = numbers.length === 0 && (good.length > 0 || (ans.outcome !== "answered" && !(ans.citations?.length)));
+        if (!usable) debug.reason = numbers.length ? "numbers" : "quotes";
+        return { ans, checks, seen, verified: usable, numbers, debug, dropped: bad.length };
       }
       try {
-        results.push({ type: "tool_result", tool_use_id: call.id,
-          content: JSON.stringify(await runTool(call.name, call.input, seen)) });
+        const out = JSON.stringify(await runTool(call.name, call.input, seen));
+        sourceText += "\n" + out;
+        results.push({ type: "tool_result", tool_use_id: call.id, content: out });
       } catch (e) {
         results.push({ type: "tool_result", tool_use_id: call.id, is_error: true, content: `שגיאה: ${String(e).slice(0, 200)}` });
       }
     }
     messages.push({ role: "user", content: results });
   }
-  return { ans: null, checks: [], seen, verified: false };
+  debug.reason = debug.reason ?? "no_answer_within_step_limit";
+  return { ans: null, checks: [], seen, verified: false, numbers: [] as string[], debug, dropped: 0 };
 }
 
 // ------------------------------------------------------------------ HTTP
@@ -301,7 +330,7 @@ Deno.serve(async (req) => {
 
   const usage: Usage = { input: 0, output: 0 };
   try {
-    const { ans, checks, seen, verified } = await answerQuestion(question, body.history ?? [], usage);
+    const { ans, checks, seen, verified, numbers, debug, dropped } = await answerQuestion(question, body.history ?? [], usage);
     const okChecks = checks.filter((c) => c.ok);
     const result = ans && verified
       ? {
@@ -321,7 +350,7 @@ Deno.serve(async (req) => {
       };
     await db.rpc("add_usage", { p_input: usage.input, p_output: usage.output });
     await db.from("qa_log").insert({
-      question, answer: result, section_ids: [...seen.keys()], cited_ids: okChecks.map((c) => c.section_id),
+      question, answer: { ...result, _debug: { ...debug, dropped_quotes: dropped, unsupported_numbers: numbers } }, section_ids: [...seen.keys()], cited_ids: okChecks.map((c) => c.section_id),
       verified, outcome: result.outcome, model: MODEL, input_tokens: usage.input, output_tokens: usage.output,
       duration_ms: Date.now() - started,
     });

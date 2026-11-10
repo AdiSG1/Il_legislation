@@ -9,3 +9,5 @@ keys.txt
 *.crt
 *.cer
 *.pem
+logs/
+eval/results/

@@ -117,8 +117,11 @@ def main(argv: list[str] | None = None) -> int:
     seen = changed = written = 0
     counts: dict[str, int] = {}
     errors: list[dict] = []
+    in_force: set[int] = set()
+    completed = False
     try:
         for reg in odata.in_force_laws(args.name):
+            in_force.add(reg["IsraelLawID"])
             if not args.dry_run and args.skip_verified and reg["IsraelLawID"] in verified_ids:
                 continue
             if args.limit and seen >= args.limit:
@@ -172,10 +175,20 @@ def main(argv: list[str] | None = None) -> int:
                 counts["error"] = counts.get("error", 0) + 1
                 errors.append({"law_id": law_id, "name": name, "error": f"{type(exc).__name__}: {exc}"})
                 traceback.print_exc()
+        completed = not args.limit
     except GeoBlockedError as exc:
         print(f"STOPPED: {exc}", file=sys.stderr)
         errors.append({"error": str(exc)})
     finally:
+        # A law that left the Knesset's in-force list (repealed, expired) must stop being answered
+        # from. Only after a complete pass over the whole list, and only if the list looks sane.
+        if cur is not None and completed and not args.name and len(in_force) > 500:
+            retired = store.retire_laws_not_in(cur, in_force)
+            conn.commit()
+            if retired:
+                print(f"no longer in force (text removed): {len(retired)}")
+                for law_id, name in retired[:20]:
+                    print(f"          {law_id} {name}")
         if cur is not None:
             cur.execute(
                 "update ingest_runs set finished_at=now(), laws_seen=%s, laws_changed=%s, "

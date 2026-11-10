@@ -37,3 +37,12 @@ assert.equal(r[0].reason, "quote_too_short");
 assert.equal(normalize("”בוחר“ – תשכ״ט"), normalize('"בוחר" - תשכ"ט'));
 
 console.log("verify.test.ts: all passed");
+
+// ---- numbers and dates in the explanation
+import { unsupportedNumbers } from "./verify.ts";
+const src = '{"law":{"name":"חוק-יסוד: הכנסת","original_publication_date":"26.7.2018"}} 6. (א) כל אזרח ישראלי ... בן עשרים ואחת ... 120 שמות {"publication_date":"2024-10-30T00:00:00+00:00"}';
+assert.deepEqual(unsupportedNumbers("לפי סעיף 6, עד 120 שמות; פורסם ב-26.7.2018", src), []);
+assert.deepEqual(unsupportedNumbers("פורסם ב-30/10/2024", src), []);                 // ISO date in source
+assert.deepEqual(unsupportedNumbers("החוק תוקן ב-1.1.2020 ומונה 150 שמות", src), ["1.1.2020", "150"]);
+assert.deepEqual(unsupportedNumbers("אין מספרים כאן", src), []);
+console.log("verify.test.ts: number checks passed");

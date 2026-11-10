@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מה כתוב בחוק</title>
+<meta name="description" content="שאלות ותשובות על חוקי מדינת ישראל, מתוך נוסח החוקים בלבד, עם ציטוט מדויק של כל סעיף.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;600;700&family=Frank+Ruhl+Libre:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  /* Design: the answer quotes look like a page of ספר החוקים - statute text in Frank Ruhl,
+     with the section's marginal heading set in the margin beside it. Everything else stays quiet. */
+  :root {
+    --ink: #1c2333;
+    --ink-soft: #4a5265;
+    --margin-ink: #6b7385;
+    --paper: #ffffff;
+    --page: #f3f5f8;
+    --rule: #d6dae1;
+    --seal: #23508f;
+    --seal-soft: #e7eef8;
+    --caution: #7a4f00;
+    --caution-soft: #fbf3e2;
+    --law: "Frank Ruhl Libre", "David", "Times New Roman", serif;
+    --ui: "Assistant", "Segoe UI", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ink: #e7eaf0; --ink-soft: #b6bdca; --margin-ink: #8f98aa;
+      --paper: #1a2030; --page: #121722; --rule: #2e3647;
+      --seal: #8fb3ea; --seal-soft: #1f2c44; --caution: #e6c27a; --caution-soft: #2d2616;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--page); color: var(--ink);
+    font: 400 1.0625rem/1.65 var(--ui);
+    min-height: 100vh; display: flex; flex-direction: column;
+  }
+  a { color: var(--seal); text-underline-offset: 3px; }
+  :focus-visible { outline: 3px solid var(--seal); outline-offset: 2px; border-radius: 4px; }
+
+  .wrap { width: 100%; max-width: 46rem; margin: 0 auto; padding: 0 1rem; }
+
+  header.site { padding: 2.75rem 0 1.25rem; }
+  header.site h1 {
+    font: 700 clamp(2rem, 6vw, 2.9rem)/1.1 var(--law);
+    margin: 0 0 .6rem; letter-spacing: -.01em;
+  }
+  header.site p { margin: 0; color: var(--ink-soft); max-width: 38rem; }
+
+  main { flex: 1; padding-bottom: 7rem; }
+
+  /* empty state */
+  .starters { margin: 1.75rem 0 0; display: grid; gap: .5rem; }
+  .starters p { margin: 0 0 .25rem; color: var(--ink-soft); font-size: .95rem; }
+  .starter {
+    text-align: right; font: 400 1rem/1.5 var(--ui); color: var(--ink);
+    background: var(--paper); border: 1px solid var(--rule); border-radius: 10px;
+    padding: .7rem .9rem; cursor: pointer;
+  }
+  .starter:hover { border-color: var(--seal); }
+
+  /* conversation */
+  .turn { margin-top: 2rem; }
+  .q {
+    font: 600 1.15rem/1.45 var(--ui); margin: 0 0 .75rem;
+    padding-inline-start: .85rem; border-inline-start: 3px solid var(--seal);
+  }
+  .a { background: var(--paper); border: 1px solid var(--rule); border-radius: 14px; padding: 1.25rem 1.25rem 1rem; }
+  .explain { white-space: pre-wrap; margin: 0; }
+  .note {
+    margin: 0 0 1rem; padding: .6rem .8rem; border-radius: 8px;
+    background: var(--caution-soft); color: var(--caution); font-size: .95rem;
+  }
+
+  /* the statute page: quotes with marginal headings */
+  .statute { margin: 1.25rem 0 0; padding-top: 1rem; border-top: 1px solid var(--rule); }
+  .statute h3 { font: 600 .95rem/1.4 var(--ui); color: var(--ink-soft); margin: 0 0 .75rem; }
+  .law-group + .law-group { margin-top: 1.25rem; }
+  .law-name { font: 700 1.05rem/1.4 var(--law); margin: 0 0 .5rem; }
+  .clause {
+    display: grid; grid-template-columns: 6.5rem 1fr; gap: 0 1rem;
+    padding: .45rem 0;
+  }
+  .clause + .clause { border-top: 1px dotted var(--rule); }
+  .margin-note {
+    font: 500 .9rem/1.35 var(--law); color: var(--margin-ink);
+    text-align: left; padding-top: .2rem;
+  }
+  .clause blockquote { margin: 0; font: 400 1.12rem/1.8 var(--law); }
+  .sources { margin: .25rem 0 0; font-size: .88rem; color: var(--ink-soft); }
+  .sources a + a { margin-inline-start: .9rem; }
+
+  .disclaimer { margin: 1rem 0 0; font-size: .85rem; color: var(--margin-ink); }
+
+  .thinking { color: var(--ink-soft); display: flex; align-items: center; gap: .6rem; }
+  .thinking .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--seal); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .thinking .dot { animation: none; } }
+  .error { color: var(--caution); }
+
+  /* ask bar */
+  form.ask {
+    position: fixed; inset-inline: 0; bottom: 0;
+    background: color-mix(in srgb, var(--page) 88%, transparent);
+    backdrop-filter: blur(6px); border-top: 1px solid var(--rule); padding: .75rem 0;
+  }
+  form.ask .wrap { display: flex; gap: .5rem; }
+  form.ask textarea {
+    flex: 1; resize: none; min-height: 3rem; max-height: 9rem;
+    font: 400 1rem/1.5 var(--ui); color: var(--ink); background: var(--paper);
+    border: 1px solid var(--rule); border-radius: 10px; padding: .7rem .85rem;
+  }
+  form.ask button {
+    font: 600 1rem var(--ui); color: #fff; background: var(--seal);
+    border: 0; border-radius: 10px; padding: 0 1.25rem; cursor: pointer;
+  }
+  form.ask button:disabled { opacity: .5; cursor: default; }
+
+  footer.site { font-size: .85rem; color: var(--margin-ink); padding: 0 0 6.5rem; }
+  footer.site p { margin: .35rem 0; }
+
+  @media (max-width: 34rem) {
+    .clause { grid-template-columns: 1fr; }
+    .margin-note { text-align: right; padding: 0; }
+  }
+</style>
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <h1>מה כתוב בחוק</h1>
+    <p>שאלו על חוקי מדינת ישראל. התשובות מבוססות רק על נוסח החוקים התקפים, וכל קביעה מלווה בציטוט מדויק מהסעיף.</p>
+  </div>
+</header>
+
+<main>
+  <div class="wrap" id="thread" aria-live="polite">
+    <div class="starters" id="starters">
+      <p>לדוגמה:</p>
+      <button class="starter" type="button">מה התנאים שמונעים מרשימה או אדם להיבחר לכנסת?</button>
+      <button class="starter" type="button">מה הסמכויות של ראש השב"כ על פי החוק?</button>
+      <button class="starter" type="button">כמה שעות עבודה מותר לעבוד ביום?</button>
+    </div>
+  </div>
+</main>
+
+<footer class="site">
+  <div class="wrap">
+    <p>מקורות: רשימת החוקים התקפים ורשימות התיקונים ממאגר החקיקה הלאומי של הכנסת; נוסח החוקים מהעמוד שאליו מפנה אתר הכנסת ("לחוק המלא"), לאחר בדיקה שהוא כולל את כל התיקונים הרשמיים.</p>
+    <p>אין כאן חדשות, פסיקה או פרשנות. המידע אינו ייעוץ משפטי.</p>
+  </div>
+</footer>
+
+<form class="ask" id="ask">
+  <div class="wrap">
+    <label for="question" class="visually-hidden" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">השאלה שלך</label>
+    <textarea id="question" rows="1" maxlength="1000" placeholder="מה תרצו לדעת על החוק?"></textarea>
+    <button type="submit" id="send">שאלה</button>
+  </div>
+</form>
+
+<script>
+  const API = "https://okphyrduubqrrnjkphrw.supabase.co/functions/v1/ask";
+  // public, read-only key: it only allows calling the "ask" function, which has its own limits
+  const PUBLIC_KEY = "sb_publishable_acVnYHW3CN4A67m0sLEiWQ_-w8ou1Rc";
+  const LEGACY_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9rcGh5cmR1dWJxcnJuamtwaHJ3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2MjMyMzcsImV4cCI6MjEwODE5OTIzN30.olVhpP-0jbPzkf8jts1JC2PsagMQQ0hCtlwnUpzgNCI";
+
+  const thread = document.getElementById("thread");
+  const form = document.getElementById("ask");
+  const box = document.getElementById("question");
+  const send = document.getElementById("send");
+  const history = [];
+
+  const el = (tag, attrs = {}, ...kids) => {
+    const n = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) n.setAttribute(k, v);
+    for (const k of kids) n.append(k);
+    return n;
+  };
+  const shortLaw = (name) => name.replace(/,\s*(ה)?ת[א-ת"״׳']+[-–־]\d{4}.*$/, "").trim();
+
+  const NOTES = {
+    interpretive: "זו שאלה של פרשנות. מוצגים הסעיפים הרלוונטיים; המאגר אינו מכריע בשאלה עצמה.",
+    not_found: "לא נמצא במאגר החוקים מידע שעונה על השאלה.",
+    refused: null,
+    error: null,
+  };
+
+  function render(turn, data) {
+    const card = turn.querySelector(".a");
+    card.replaceChildren();
+    if (!data || data.error) {
+      card.append(el("p", { class: "error" }, data?.error || "לא התקבלה תשובה. נסו שוב בעוד רגע."));
+      return;
+    }
+    if (NOTES[data.outcome]) card.append(el("p", { class: "note" }, NOTES[data.outcome]));
+    card.append(el("p", { class: "explain" }, data.answer || ""));
+
+    const cites = data.citations || [];
+    if (cites.length) {
+      const st = el("section", { class: "statute" }, el("h3", {}, "מתוך החוק"));
+      const byLaw = new Map();
+      for (const c of cites) {
+        if (!byLaw.has(c.law)) byLaw.set(c.law, []);
+        byLaw.get(c.law).push(c);
+      }
+      for (const [law, items] of byLaw) {
+        const g = el("div", { class: "law-group" }, el("p", { class: "law-name" }, law));
+        for (const c of items) {
+          const where = c.anchor && !/^סעיף/.test(c.anchor) ? c.anchor : `סעיף ${c.section ?? ""}`;
+          g.append(el("div", { class: "clause" },
+            el("div", { class: "margin-note" }, where),
+            el("blockquote", {}, c.quote)));
+        }
+        const first = items[0];
+        const src = el("p", { class: "sources" });
+        if (first.knesset_url) src.append(el("a", { href: first.knesset_url, target: "_blank", rel: "noopener" }, "החוק באתר הכנסת"));
+        if (first.text_url) src.append(el("a", { href: first.text_url, target: "_blank", rel: "noopener" }, "הנוסח המלא שנבדק"));
+        g.append(src);
+        st.append(g);
+      }
+      card.append(st);
+    }
+    card.append(el("p", { class: "disclaimer" }, data.disclaimer || ""));
+  }
+
+  async function ask(question) {
+    document.getElementById("starters")?.remove();
+    const turn = el("article", { class: "turn" },
+      el("h2", { class: "q" }, question),
+      el("div", { class: "a" }));
+    const waiting = el("p", { class: "thinking" }, el("span", { class: "dot", "aria-hidden": "true" }), "מחפש בחוקים…");
+    turn.querySelector(".a").append(waiting);
+    thread.append(turn);
+    turn.scrollIntoView({ behavior: "smooth", block: "start" });
+
+    const started = Date.now();
+    const tick = setInterval(() => {
+      const s = Math.round((Date.now() - started) / 1000);
+      waiting.lastChild.textContent = s < 15 ? "מחפש בחוקים…" : `קורא את הסעיפים ובודק את הציטוטים… (${s} שניות)`;
+    }, 1000);
+
+    send.disabled = true;
+    let data;
+    try {
+      const r = await fetch(API, {
+        method: "POST",
+        headers: { "content-type": "application/json", apikey: PUBLIC_KEY, Authorization: `Bearer ${LEGACY_ANON}` },
+        body: JSON.stringify({ question, history: history.slice(-6) }),
+      });
+      data = await r.json().catch(() => null);
+      if (!r.ok && !data?.error) data = { error: "השירות אינו זמין כרגע. נסו שוב בעוד רגע." };
+    } catch {
+      data = { error: "אין חיבור לשירות. בדקו את החיבור לאינטרנט ונסו שוב." };
+    } finally {
+      clearInterval(tick);
+      send.disabled = false;
+    }
+    render(turn, data);
+    if (data && !data.error) {
+      history.push({ role: "user", content: question }, { role: "assistant", content: data.answer || "" });
+    }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const q = box.value.trim();
+    if (q.length < 3 || send.disabled) return;
+    box.value = "";
+    box.style.height = "";
+    ask(q);
+  });
+  box.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); form.requestSubmit(); }
+  });
+  box.addEventListener("input", () => { box.style.height = "auto"; box.style.height = box.scrollHeight + "px"; });
+  for (const b of document.querySelectorAll(".starter")) b.addEventListener("click", () => ask(b.textContent));
+</script>
+</body>
+</html>

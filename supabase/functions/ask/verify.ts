@@ -29,7 +29,32 @@ export function normalize(s: string): string {
     .replace(/[‘’‚‛'׳`]/g, "'")
     .replace(/[‐‑‒–—―−]/g, "-")
     .replace(/\s+/g, " ")
+    .replace(/\)\s+\(/g, ")(")      // "(א) (1)" and "(א)(1)" are the same sub-clause label
+    .replace(/\s+([,.;:])/g, "$1")   // no space before punctuation
     .trim();
+}
+
+// Numbers and dates in the agent's own explanation must come from what the tools
+// returned (law text, amendment list): no number may be invented or misremembered.
+// Returns the numbers that appear in the answer but nowhere in the sources.
+export function unsupportedNumbers(answer: string, sourceText: string): string[] {
+  const src = normalize(sourceText);
+  const srcNums = new Set(src.match(/\d+/g) ?? []);
+  // dates like 26.7.2018 / 26/07/2018: accept if day, month and year all appear as a date in the sources
+  const srcDates = new Set(
+    [...src.matchAll(/(\d{4})-(\d{2})-(\d{2})/g)].map((m) => `${+m[3]}.${+m[2]}.${m[1]}`),
+  );
+  const out: string[] = [];
+  const text = normalize(answer);
+  for (const m of text.matchAll(/\d{1,2}[./]\d{1,2}[./]\d{4}/g)) {
+    const [d, mo, y] = m[0].split(/[./]/);
+    if (!srcDates.has(`${+d}.${+mo}.${y}`) && !src.includes(m[0])) out.push(m[0]);
+  }
+  const withoutDates = text.replace(/\d{1,2}[./]\d{1,2}[./]\d{4}/g, " ");
+  for (const n of withoutDates.match(/\d+/g) ?? []) {
+    if (!srcNums.has(n) && !srcNums.has(String(Number(n)))) out.push(n);
+  }
+  return [...new Set(out)];
 }
 
 export function checkCitations(citations: Citation[], retrieved: Map<number, SectionText>): QuoteCheck[] {

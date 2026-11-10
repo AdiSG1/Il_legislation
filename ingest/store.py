@@ -139,3 +139,13 @@ def drop_text(cur, israel_law_id: int) -> None:
     """Remove indexed text for a law whose text can no longer be used."""
     cur.execute("delete from sections where israel_law_id=%s", (israel_law_id,))
     cur.execute("delete from texts where israel_law_id=%s", (israel_law_id,))
+
+
+def retire_laws_not_in(cur, in_force_ids: set[int]) -> list[tuple[int, str]]:
+    """Mark laws that are no longer in force and remove their searchable text."""
+    cur.execute("select israel_law_id, name from laws where text_status <> 'not_in_force'")
+    gone = [(i, n) for i, n in cur.fetchall() if i not in in_force_ids]
+    for law_id, _ in gone:
+        drop_text(cur, law_id)
+        cur.execute("update laws set text_status = 'not_in_force', fetched_at = now() where israel_law_id = %s", (law_id,))
+    return gone
