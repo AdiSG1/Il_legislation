@@ -29,7 +29,7 @@ import traceback
 from .knesset_site import KnessetSite, verify
 from .odata import GeoBlockedError, KnessetOData
 from .wikisource import Wikisource, title_from_url
-from .wikitext import parse_law
+from .wikitext import parse_law, plain_letters
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT_DIR = ROOT / "out"
@@ -58,13 +58,24 @@ def process(reg: dict, site: KnessetSite, wiki: Wikisource):
     title = title_from_url(item.open_book_url)
     if not title:
         return item, "no_text", {"reason": "full-law link is not Hebrew Wikisource", "url": item.open_book_url}, None, None
-    page = wiki.page(title)
+    try:
+        page = wiki.page(title)
+    except LookupError:
+        # the Knesset's link is broken (e.g. a title cut short): find the page tagged with this law's id
+        page = wiki.find_by_knesset_id(reg["IsraelLawID"])
+        if page is None:
+            return item, "no_text", {"reason": "the Knesset's full-law link leads to a missing page",
+                                     "url": item.open_book_url}, None, None
     parsed = parse_law(page.wikitext)
     if parsed.israel_law_id and parsed.israel_law_id != reg["IsraelLawID"]:
-        return item, "error", {"reason": "Wikisource page belongs to a different law",
-                               "page_law_id": parsed.israel_law_id}, page, parsed
-    status, note = verify(item, parsed.cited_pdf_ids)
-    note.update({"wikisource_revision": page.revision_id, "revision_time": page.revision_time})
+        # the Knesset links here, but the page is tagged with another id: accept only if it is
+        # clearly the same law (same title, ignoring punctuation)
+        if plain_letters(parsed.title or "") != plain_letters(item.name or reg.get("Name") or ""):
+            return item, "error", {"reason": "Wikisource page belongs to a different law",
+                                   "page_law_id": parsed.israel_law_id, "page_title": parsed.title}, page, parsed
+    status, note = verify(item, parsed.cited_pdf_ids, parsed.cited_publications)
+    note.update({"wikisource_revision": page.revision_id, "revision_time": page.revision_time,
+                 "found_by": page.found_by})
     return item, status, note, page, parsed
 
 
@@ -74,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--limit", type=int, default=0, help="stop after N laws (0 = all)")
     ap.add_argument("--dry-run", action="store_true", help="no database or embeddings; write ./out")
     ap.add_argument("--force", action="store_true", help="re-index even if the text did not change")
+    ap.add_argument("--skip-verified", action="store_true",
+                    help="only retry laws that are not verified in the database yet (fast re-run)")
     args = ap.parse_args(argv)
 
     odata, site, wiki = KnessetOData(), KnessetSite(), Wikisource()
@@ -94,6 +107,11 @@ def main(argv: list[str] | None = None) -> int:
         cur = conn.cursor()
         cur.execute("insert into ingest_runs default values returning id")
         run_id = cur.fetchone()[0]
+        verified_ids: set[int] = set()
+        if args.skip_verified:
+            cur.execute("select israel_law_id from laws where text_status = 'verified'")
+            verified_ids = {r[0] for r in cur.fetchall()}
+            print(f"skipping {len(verified_ids)} laws already verified")
         conn.commit()
 
     seen = changed = written = 0
@@ -101,6 +119,8 @@ def main(argv: list[str] | None = None) -> int:
     errors: list[dict] = []
     try:
         for reg in odata.in_force_laws(args.name):
+            if not args.dry_run and args.skip_verified and reg["IsraelLawID"] in verified_ids:
+                continue
             if args.limit and seen >= args.limit:
                 break
             seen += 1
@@ -131,7 +151,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 cited = parsed.cited_pdf_ids if parsed else set()
                 store.upsert_law(cur, reg, item, status, note)
-                store.replace_amendments(cur, law_id, item.amendments, cited)
+                store.replace_amendments(cur, law_id, item.amendments, cited,
+                                         parsed.cited_publications if parsed else set())
                 if status == "verified":
                     sha = hashlib.sha256(page.wikitext.encode("utf-8")).hexdigest()
                     if args.force or store.stored_text_hash(cur, law_id) != sha:

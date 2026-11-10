@@ -142,6 +142,48 @@ class ParsedLaw:
     israel_law_id: int | None
     cited_pdf_ids: set[str]
     sections: list[WikiSection]
+    cited_publications: set[tuple[str, str, str]] = field(default_factory=set)   # (series, year, page)
+
+
+# ------------------------------------------------------------------ publication references
+# The preamble cites each publication as {{ח:תיבה|<ref>|<name>|<optional pdf>}}, where <ref>
+# looks like "ס״ח תשפ״ה, 10" or "תשס״א, 28" or just "210" - series and year carry over
+# from the previous reference when they are left out.
+_SERIES = {"סח": "סח", "דמי": "דמי", "ער": "ער", "קת": "קת", "הח": "הח", "יפ": "יפ"}
+_REF = re.compile(
+    r"^\s*(?:(?P<series>[א-ת]{1,3}[״\"][א-ת])\s+)?(?:(?P<year>[א-ת]{1,4}[״\"'׳][א-ת]?)\s*,\s*)?(?P<pages>\d[\d\s,]*)"
+)
+
+
+_FINALS = str.maketrans("ךםןףץ", "כמנפצ")
+
+
+def plain_letters(s: str) -> str:
+    """Hebrew letters only, final forms folded (תש״ם -> תשמ), for comparing names and years."""
+    return re.sub(r"[^א-ת]", "", s or "").translate(_FINALS)
+
+
+def cited_publications(wikitext: str) -> set[tuple[str, str, str]]:
+    pre = wikitext.split("{{ח:מפריד}}", 1)[0]
+    out: set[tuple[str, str, str]] = set()
+    series = year = ""
+    for kind, inner in _split_templates(pre):
+        if kind != "tpl":
+            continue
+        name, pos, _ = _params(inner)
+        if name != "ח:תיבה" or not pos:
+            continue
+        ref = render(pos[0]).strip()
+        m = _REF.match(ref)
+        if not m:
+            continue
+        if m.group("series"):
+            series = _SERIES.get(plain_letters(m.group("series")), plain_letters(m.group("series")))
+        if m.group("year"):
+            year = plain_letters(m.group("year"))
+        for page in re.findall(r"\d+", m.group("pages")):
+            out.add((series, year, page))
+    return out
 
 
 def _clean_lines(lines: list[str]) -> str:
@@ -220,4 +262,4 @@ def parse_law(wikitext: str) -> ParsedLaw:
         if cur is not None:
             buf.append(render(line))
     flush()
-    return ParsedLaw(title, israel_id, cited, sections)
+    return ParsedLaw(title, israel_id, cited, sections, cited_publications(wikitext))

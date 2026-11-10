@@ -95,7 +95,8 @@ def upsert_law(cur, registry: dict, item, status: str, note: dict | None) -> Non
     )
 
 
-def replace_amendments(cur, israel_law_id: int, amendments, cited_ids: set[str]) -> None:
+def replace_amendments(cur, israel_law_id: int, amendments, cited_ids: set[str], cited_pubs=None) -> None:
+    from .knesset_site import cited_in_text
     cur.execute("delete from amendments where israel_law_id=%s", (israel_law_id,))
     for a in amendments:
         cur.execute(
@@ -103,7 +104,8 @@ def replace_amendments(cur, israel_law_id: int, amendments, cited_ids: set[str])
                                        magazine, page, pdf_url, summary, in_text)
                values (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
             (israel_law_id, a.number, a.name, a.kind, a.publication_date, a.series, a.magazine,
-             a.page, a.pdf_url, a.summary, (a.pdf_id in cited_ids) if a.pdf_id else None),
+             a.page, a.pdf_url, a.summary,
+             cited_in_text(a, cited_ids, cited_pubs or set()) if (cited_ids or cited_pubs) else None),
         )
 
 

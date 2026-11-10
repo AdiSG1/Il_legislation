@@ -98,19 +98,68 @@ class KnessetSite:
         )
 
 
-def verify(item: LawItem, cited_pdf_ids: set[str]) -> tuple[str, dict]:
-    """Check that every official amendment PDF is cited by the Wikisource text.
+SERIES_ABBR = {"ספר החוקים": "סח", "דיני מדינת ישראל": "דמי", "עיתון רשמי": "ער",
+               "קובץ התקנות": "קת", "הצעות חוק": "הח", "ילקוט הפרסומים": "יפ"}
 
-    verified    every amendment with a PDF is cited
+_ONES = "אבגדהוזחט"
+_TENS = "יכלמנסעפצ"
+_HUNDREDS = {100: "ק", 200: "ר", 300: "ש", 400: "ת"}
+
+
+def hebrew_year_letters(year: int) -> str:
+    """5785 -> 'תשפה' (thousands dropped, no punctuation)."""
+    n = year % 1000
+    out = ""
+    while n >= 400:
+        out += "ת"; n -= 400
+    if n >= 100:
+        out += _HUNDREDS[(n // 100) * 100]; n %= 100
+    if n in (15, 16):
+        return out + ("טו" if n == 15 else "טז")
+    if n >= 10:
+        out += _TENS[n // 10 - 1]; n %= 10
+    if n:
+        out += _ONES[n - 1]
+    return out
+
+
+def candidate_years(date: str | None) -> set[str]:
+    """A Gregorian date falls in one of two Hebrew years (the new year starts in Sept/Oct)."""
+    if not date or len(date) < 4 or not date[:4].isdigit():
+        return set()
+    y = int(date[:4])
+    return {hebrew_year_letters(y + 3760), hebrew_year_letters(y + 3761)}
+
+
+def cited_in_text(a: Amendment, cited_pdf_ids: set[str], cited_pubs: set[tuple[str, str, str]]) -> bool:
+    if a.pdf_id and a.pdf_id in cited_pdf_ids:
+        return True
+    # otherwise: the text cites the same official publication (series, year, page)
+    if not a.page or not str(a.page).strip().isdigit():
+        return False
+    series = SERIES_ABBR.get((a.series or "").strip(), "")
+    years = candidate_years(a.publication_date)
+    page = str(int(str(a.page).strip()))
+    return any(p == page and y in years and (not series or not s or s == series)
+               for s, y, p in cited_pubs)
+
+
+def verify(item: LawItem, cited_pdf_ids: set[str],
+           cited_pubs: set[tuple[str, str, str]] | None = None) -> tuple[str, dict]:
+    """Check that every official amendment is cited by the Wikisource text, either by
+    its official PDF or by its publication reference (series, year, page).
+
+    verified    every checkable amendment is cited
     outdated    at least one official amendment is missing from the text
     """
-    with_pdf = [a for a in item.amendments if a.pdf_id]
-    missing = [a for a in with_pdf if a.pdf_id not in cited_pdf_ids]
-    no_pdf = [a for a in item.amendments if not a.pdf_id]
+    cited_pubs = cited_pubs or set()
+    checkable = [a for a in item.amendments if a.pdf_id or (a.page and str(a.page).strip().isdigit())]
+    missing = [a for a in checkable if not cited_in_text(a, cited_pdf_ids, cited_pubs)]
     note = {
         "official_amendments": len(item.amendments),
-        "checked": len(with_pdf),
-        "missing": [{"name": a.name, "date": a.publication_date, "pdf": a.pdf_url} for a in missing],
-        "without_pdf": len(no_pdf),
+        "checked": len(checkable),
+        "missing": [{"name": a.name, "date": a.publication_date, "pdf": a.pdf_url,
+                     "ref": f"{a.series or ''} {a.magazine or ''}, {a.page or ''}".strip()} for a in missing],
+        "unchecked": len(item.amendments) - len(checkable),
     }
     return ("outdated" if missing else "verified"), note
