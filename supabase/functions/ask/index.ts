@@ -8,7 +8,7 @@
 
 import { createClient } from "npm:@supabase/supabase-js@2";
 import { DISCLAIMER, SYSTEM_PROMPT } from "./prompt.ts";
-import { checkCitations, unsupportedNumbers, type Citation, type SectionText } from "./verify.ts";
+import { checkCitations, citationKey, unsupportedNumbers, type Citation, type SectionText } from "./verify.ts";
 
 const env = (k: string, d = "") => Deno.env.get(k) ?? d;
 const MODEL = env("CLAUDE_MODEL", "claude-sonnet-5-5");
@@ -61,10 +61,15 @@ const TOOLS = [
   },
   {
     name: "law_info",
-    description: "פרטי חוק ורשימת התיקונים האחרונים שלו מתוך מאגר הכנסת, כולל תקציר הכנסת לכל תיקון וקישור לפרסום הרשמי.",
+    description: "פרטי חוק ורשימת התיקונים שלו מתוך מאגר הכנסת (מהחדש לישן), כולל תקציר הכנסת לכל תיקון וקישור לפרסום הרשמי. לכל תיקון יש amendment_id שאפשר לצטט ממנו (משם התיקון או מהתקציר).",
     input_schema: {
       type: "object",
-      properties: { law_id: { type: "integer" }, limit: { type: "integer", description: "מספר תיקונים, ברירת מחדל 5" } },
+      properties: {
+        law_id: { type: "integer" },
+        limit: { type: "integer", description: "מספר תיקונים, ברירת מחדל 5, עד 25" },
+        from_year: { type: "integer", description: "אופציונלי: רק תיקונים שפורסמו משנה זו" },
+        to_year: { type: "integer", description: "אופציונלי: רק תיקונים שפורסמו עד שנה זו (כולל)" },
+      },
       required: ["law_id"],
     },
   },
@@ -81,10 +86,11 @@ const TOOLS = [
           items: {
             type: "object",
             properties: {
-              section_id: { type: "integer" },
-              quote: { type: "string", description: "ציטוט מילה במילה מהסעיף; קיצור באמצע רק עם ..." },
+              section_id: { type: "integer", description: "סעיף בחוק" },
+              amendment_id: { type: "integer", description: "או: תיקון מתוך law_info (במקום section_id)" },
+              quote: { type: "string", description: "ציטוט מילה במילה מהסעיף, או משם התיקון/תקציר הכנסת; קיצור באמצע רק עם ..." },
             },
-            required: ["section_id", "quote"],
+            required: ["quote"],
           },
         },
       },
@@ -169,19 +175,25 @@ async function runTool(name: string, input: Record<string, unknown>, seen: Seen)
     const { data: law } = await db.from("laws")
       .select("israel_law_id, name, is_basic_law, validity_desc, text_status, publication_date, knesset_url")
       .eq("israel_law_id", lawId).single();
+    const fromY = Number(input.from_year) || null, toY = Number(input.to_year) || null;
     const { data: am, error } = await db.rpc("law_amendments", {
-      p_law_id: lawId, p_limit: Math.min(Number(input.limit ?? 5), 15),
+      p_law_id: lawId, p_limit: Math.min(Number(input.limit ?? 5), 25),
+      p_from: fromY ? `${fromY}-01-01` : null, p_to: toY ? `${toY}-12-31` : null,
     });
     if (error) throw error;
-    // the Knesset's list includes the original law itself ("(החוק המקורי)"); only later items are amendments
     const fmt = (d: string | null) => (d ? `${+d.slice(8, 10)}.${+d.slice(5, 7)}.${d.slice(0, 4)}` : null);
-    const amendments = ((am ?? []) as { publication_date: string | null; name: string }[])
-      .filter((a) => !law?.publication_date || !a.publication_date || a.publication_date.slice(0, 10) > String(law.publication_date).slice(0, 10))
-      .map((a) => ({ ...a, publication_date: fmt(a.publication_date) }));
+    type Am = { id: number; publication_date: string | null; name: string; summary: string | null; pdf_url: string | null };
+    const amendments = ((am ?? []) as Am[]).map((a) => {
+      seen.set(-a.id, { id: -a.id, content: `${a.name}\n${a.summary ?? ""}`, law_id: lawId, law_name: law?.name ?? "",
+        section_num: null, anchor: `תיקון ${fmt(a.publication_date) ?? ""}`.trim(),
+        knesset_url: law?.knesset_url ?? "", permalink: a.pdf_url ?? "" });
+      const { id, ...rest } = a;
+      return { amendment_id: id, ...rest, publication_date: fmt(a.publication_date) };
+    });
     return {
       law: law && { ...law, original_publication_date: fmt(law.publication_date), publication_date: undefined },
       amendments_after_original: amendments,
-      note: amendments.length ? undefined : "לא נמצאו תיקונים לאחר הפרסום המקורי",
+      note: amendments.length ? undefined : "לא נמצאו תיקונים בטווח שנבחר (או לאחר הפרסום המקורי)",
     };
   }
   return { error: `unknown tool ${name}` };
@@ -254,9 +266,9 @@ async function answerQuestion(question: string, history: { role: string; content
         if ((bad.length || needsQuotes || numbers.length) && retries < MAX_ANSWER_RETRIES) {
           retries++;
           const problems: string[] = [];
-          if (needsQuotes) problems.push("תשובה מסוג answered חייבת לכלול לפחות ציטוט אחד מסעיף שקיבלת.");
+          if (needsQuotes) problems.push("תשובה מסוג answered חייבת לכלול לפחות ציטוט אחד – מסעיף שקיבלת (section_id) או מתיקון ב-law_info (amendment_id).");
           if (bad.length) problems.push("הציטוטים הבאים אינם מופיעים מילה במילה בסעיף שצוין, או שהסעיף לא התקבל מהכלים:\n" +
-            bad.map((b) => `- section_id ${b.section_id}: "${b.quote}" (${b.reason})`).join("\n"));
+            bad.map((b) => `- ${b.section_id < 0 ? `amendment_id ${-b.section_id}` : `section_id ${b.section_id}`}: "${b.quote}" (${b.reason})`).join("\n"));
           if (numbers.length) problems.push(`המספרים/התאריכים הבאים בהסבר אינם מופיעים בשום תוצאה של הכלים: ${numbers.join(", ")}. הסר אותם או תקן לפי המקור; אם המקור כותב מספר במילים, כתוב אותו במילים כמו במקור.`);
           results.push({ type: "tool_result", tool_use_id: call.id, is_error: true, content: problems.join("\n") + "\nתקן והגש שוב." });
           continue;
@@ -338,8 +350,11 @@ Deno.serve(async (req) => {
         answer: ans.answer,
         citations: okChecks.map((c) => {
           const s = seen.get(c.section_id)!;
-          return { quote: c.quote, law: s.law_name, section: s.section_num, anchor: s.anchor,
-            knesset_url: s.knesset_url, text_url: s.permalink };
+          return c.section_id < 0
+            ? { type: "amendment", quote: c.quote, law: s.law_name, section: null, anchor: s.anchor,
+                knesset_url: s.knesset_url, text_url: null, pdf_url: s.permalink || null }
+            : { type: "section", quote: c.quote, law: s.law_name, section: s.section_num, anchor: s.anchor,
+                knesset_url: s.knesset_url, text_url: s.permalink };
         }),
         disclaimer: DISCLAIMER,
       }

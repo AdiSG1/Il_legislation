@@ -2,10 +2,16 @@
 // section it cites, and that section must be one the agent actually retrieved.
 // Pure functions, no Deno / Node APIs, so they can be unit-tested anywhere.
 
+// A citation points at a law section (section_id) or at an entry in the Knesset's
+// amendment list (amendment_id: its name and the Knesset's own summary).
 export interface Citation {
-  section_id: number;
+  section_id?: number;
+  amendment_id?: number;
   quote: string;
 }
+
+// sections and amendments share one map; amendments use negative keys
+export const citationKey = (c: Citation) => (c.amendment_id ? -Math.abs(c.amendment_id) : Number(c.section_id));
 
 export interface SectionText {
   id: number;
@@ -13,7 +19,7 @@ export interface SectionText {
 }
 
 export interface QuoteCheck {
-  section_id: number;
+  section_id: number;   // the citation key (negative for amendments)
   quote: string;
   ok: boolean;
   reason?: "section_not_retrieved" | "quote_not_in_section" | "quote_too_short";
@@ -58,7 +64,9 @@ export function unsupportedNumbers(answer: string, sourceText: string): string[]
 }
 
 export function checkCitations(citations: Citation[], retrieved: Map<number, SectionText>): QuoteCheck[] {
-  return citations.map(({ section_id, quote }) => {
+  return citations.map((c) => {
+    const section_id = citationKey(c);
+    const quote = c.quote ?? "";
     const sec = retrieved.get(section_id);
     if (!sec) return { section_id, quote, ok: false, reason: "section_not_retrieved" as const };
     const q = normalize(quote).replace(/^\.\.\.|\.\.\.$|^…|…$/g, "").trim();

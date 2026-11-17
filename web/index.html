@@ -91,6 +91,7 @@
     text-align: left; padding-top: .2rem;
   }
   .clause blockquote { margin: 0; font: 400 1.12rem/1.8 var(--law); }
+  .clause blockquote a.pub { font: 400 .85rem var(--ui); white-space: nowrap; }
   .sources { margin: .25rem 0 0; font-size: .88rem; color: var(--ink-soft); }
   .sources a + a { margin-inline-start: .9rem; }
 
@@ -212,11 +213,14 @@
         const g = el("div", { class: "law-group" }, el("p", { class: "law-name" }, law));
         for (const c of items) {
           const where = c.anchor && !/^סעיף/.test(c.anchor) ? c.anchor : `סעיף ${c.section ?? ""}`;
-          g.append(el("div", { class: "clause" },
-            el("div", { class: "margin-note" }, where),
-            el("blockquote", {}, c.quote)));
+          const quote = el("blockquote", {}, c.quote);
+          if (c.type === "amendment" && c.pdf_url) {
+            // an amendment is quoted from the Knesset's list: link its official publication
+            quote.append(" ", el("a", { href: c.pdf_url, target: "_blank", rel: "noopener", class: "pub" }, "הפרסום הרשמי"));
+          }
+          g.append(el("div", { class: "clause" }, el("div", { class: "margin-note" }, where), quote));
         }
-        const first = items[0];
+        const first = items.find((c) => c.text_url) || items[0];
         const src = el("p", { class: "sources" });
         if (first.knesset_url) src.append(el("a", { href: first.knesset_url, target: "_blank", rel: "noopener" }, "החוק באתר הכנסת"));
         if (first.text_url) src.append(el("a", { href: first.text_url, target: "_blank", rel: "noopener" }, "הנוסח המלא שנבדק"));

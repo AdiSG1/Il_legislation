@@ -46,3 +46,12 @@ assert.deepEqual(unsupportedNumbers("פורסם ב-30/10/2024", src), []);      
 assert.deepEqual(unsupportedNumbers("החוק תוקן ב-1.1.2020 ומונה 150 שמות", src), ["1.1.2020", "150"]);
 assert.deepEqual(unsupportedNumbers("אין מספרים כאן", src), []);
 console.log("verify.test.ts: number checks passed");
+
+// ---- amendment citations (negative keys)
+import { citationKey } from "./verify.ts";
+const am = new Map([[-55, { id: -55, content: "חוק-יסוד: הממשלה (תיקון מס' 8)\nהתיקון קובע כי ראש ממשלה חליפי ימונה בממשלת חילופים." }]]);
+assert.equal(citationKey({ amendment_id: 55, quote: "x" }), -55);
+assert.equal(checkCitations([{ amendment_id: 55, quote: "ראש ממשלה חליפי ימונה בממשלת חילופים" }], am)[0].ok, true);
+assert.equal(checkCitations([{ amendment_id: 55, quote: "ראש ממשלה חליפי לא ימונה" }], am)[0].ok, false);
+assert.equal(checkCitations([{ section_id: 55, quote: "ראש ממשלה חליפי ימונה" }], am)[0].reason, "section_not_retrieved");
+console.log("verify.test.ts: amendment citations passed");
