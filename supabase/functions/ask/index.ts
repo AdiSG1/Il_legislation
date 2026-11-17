@@ -211,7 +211,7 @@ async function claude(messages: unknown[], usage: Usage) {
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: MODEL, max_tokens: 2000, system: SYSTEM_PROMPT, tools: TOOLS,
+      model: MODEL, max_tokens: 4096, system: SYSTEM_PROMPT, tools: TOOLS,
       tool_choice: { type: "auto" }, messages,
     }),
   });
@@ -224,6 +224,18 @@ async function claude(messages: unknown[], usage: Usage) {
 
 interface Answer { outcome: string; answer: string; citations: Citation[] }
 
+// Citations sent as a string: strict JSON first; if Hebrew gershayim (התשפ"ה) broke the
+// JSON, recover {"section_id"|"amendment_id": N, "quote": "..."} objects one by one.
+// Recovered quotes still go through the same verbatim check.
+function parseCitationString(s: string): Citation[] {
+  try { const v = JSON.parse(s); return Array.isArray(v) ? v : []; } catch { /* fall through */ }
+  const out: Citation[] = [];
+  for (const m of s.matchAll(/"(section_id|amendment_id)"\s*:\s*"?(\d+)"?\s*,\s*"quote"\s*:\s*"([\s\S]*?)"\s*\}/g)) {
+    out.push({ [m[1]]: Number(m[2]), quote: m[3] } as Citation);
+  }
+  return out;
+}
+
 async function answerQuestion(question: string, history: { role: string; content: string }[], usage: Usage) {
   const seen: Seen = new Map();
   let sourceText = "";            // everything the tools returned: the only allowed source of numbers
@@ -233,7 +245,7 @@ async function answerQuestion(question: string, history: { role: string; content
   ];
   let retries = 0;
   let nudged = false;
-  const debug: { attempts: number; last_bad?: unknown; reason?: string } = { attempts: 0 };
+  const debug: { attempts: number; last_bad?: unknown; reason?: string; raw_citations?: unknown } = { attempts: 0 };
   for (let step = 0; step < MAX_STEPS + MAX_ANSWER_RETRIES; step++) {
     if (step === MAX_STEPS - 1 && debug.attempts === 0) {
       // last research step: make sure an answer gets submitted
@@ -257,6 +269,12 @@ async function answerQuestion(question: string, history: { role: string; content
     for (const call of calls) {
       if (call.name === "submit_answer") {
         const ans = call.input as unknown as Answer;
+        // the model occasionally sends citations as a JSON string, or omits them
+        let cites: unknown = ans.citations;
+        const raw = { type: Array.isArray(cites) ? "array" : typeof cites, sample: JSON.stringify(cites ?? null).slice(0, 300) };
+        if (typeof cites === "string") cites = parseCitationString(cites);
+        ans.citations = Array.isArray(cites) ? cites.filter((c) => c && typeof c === "object") as Citation[] : [];
+        debug.raw_citations = raw;
         const checks = checkCitations(ans.citations ?? [], seen);
         const bad = checks.filter((c) => !c.ok);
         const needsQuotes = ans.outcome === "answered" && !(ans.citations?.length);
@@ -266,7 +284,8 @@ async function answerQuestion(question: string, history: { role: string; content
         if ((bad.length || needsQuotes || numbers.length) && retries < MAX_ANSWER_RETRIES) {
           retries++;
           const problems: string[] = [];
-          if (needsQuotes) problems.push("תשובה מסוג answered חייבת לכלול לפחות ציטוט אחד – מסעיף שקיבלת (section_id) או מתיקון ב-law_info (amendment_id).");
+          if (res.stop_reason === "max_tokens") problems.push("התשובה נקטעה כי הייתה ארוכה מדי. קצר את ההסבר (משפט אחד לכל תיקון) והגש שוב, כולל citations.");
+          if (needsQuotes) problems.push("תשובה מסוג answered חייבת לכלול לפחות ציטוט אחד – מסעיף שקיבלת (section_id) או מתיקון ב-law_info (amendment_id). השדה citations חייב להיות מערך של אובייקטים, למשל [{\"amendment_id\": 123, \"quote\": \"...\"}].");
           if (bad.length) problems.push("הציטוטים הבאים אינם מופיעים מילה במילה בסעיף שצוין, או שהסעיף לא התקבל מהכלים:\n" +
             bad.map((b) => `- ${b.section_id < 0 ? `amendment_id ${-b.section_id}` : `section_id ${b.section_id}`}: "${b.quote}" (${b.reason})`).join("\n"));
           if (numbers.length) problems.push(`המספרים/התאריכים הבאים בהסבר אינם מופיעים בשום תוצאה של הכלים: ${numbers.join(", ")}. הסר אותם או תקן לפי המקור; אם המקור כותב מספר במילים, כתוב אותו במילים כמו במקור.`);
