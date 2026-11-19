@@ -1,3 +1,11 @@
 # Copy this file to "keys.txt" (same folder) and fill in your values. keys.txt is never uploaded to GitHub.
 DATABASE_URL=postgresql://postgres.okphyrduubqrrnjkphrw:YOUR-PASSWORD@aws-0-eu-central-1.pooler.supabase.com:5432/postgres
 VOYAGE_API_KEY=your-voyage-key
+
+# Optional, for the usage dashboard (dashboard.bat). Leave out any you don't want.
+# Supabase: Account -> Access Tokens -> Generate new token
+SUPABASE_ACCESS_TOKEN=
+# Vercel: Account Settings -> Tokens -> Create
+VERCEL_TOKEN=
+# Anthropic billed cost: needs an Admin key (sk-ant-admin...), available only to Console organizations
+ANTHROPIC_ADMIN_KEY=

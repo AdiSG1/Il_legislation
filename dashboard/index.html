@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Il_legislation Usage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column of bands – alerts, four headline figures, two daily charts,
+   one card per service, recent questions. Summary first, detail last. */
+:root {
+  --bg: #f3f5f8; --surface: #ffffff; --line: #dde2ea; --ink: #15202c; --muted: #5d6877;
+  --accent: #2357b5; --accent-soft: #e3ebfa;
+  --good: #1d7a4e; --good-soft: #e1f2e9; --warn: #a86400; --warn-soft: #fbefd9; --bad: #b3261e; --bad-soft: #fbe4e2;
+  --s-answered: #2357b5; --s-interp: #7c8fb8; --s-other: #b9c3d3; --s-error: #b3261e;
+  --sans: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11161d; --surface: #19202a; --line: #2a3442; --ink: #e6ebf2; --muted: #93a0b2;
+  --accent: #7da6f0; --accent-soft: #1f2d45;
+  --good: #5cc28f; --good-soft: #17301f; --warn: #e2a64a; --warn-soft: #33270f; --bad: #f08a80; --bad-soft: #3a1c1a;
+  --s-answered: #7da6f0; --s-interp: #5a6f99; --s-other: #3e4a5c; --s-error: #f08a80; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11161d; --surface: #19202a; --line: #2a3442; --ink: #e6ebf2; --muted: #93a0b2;
+  --accent: #7da6f0; --accent-soft: #1f2d45;
+  --good: #5cc28f; --good-soft: #17301f; --warn: #e2a64a; --warn-soft: #33270f; --bad: #f08a80; --bad-soft: #3a1c1a;
+  --s-answered: #7da6f0; --s-interp: #5a6f99; --s-other: #3e4a5c; --s-error: #f08a80; color-scheme: dark }
+
+* { box-sizing: border-box }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.5 var(--sans) }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 24px 48px;
+        padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+        display: grid; gap: 20px }
+a { color: var(--accent) }
+h1 { font-size: 22px; font-weight: 600; margin: 0; text-wrap: balance }
+h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums }
+.muted { color: var(--muted) }
+
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; justify-content: space-between }
+header .meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; color: var(--muted) }
+button { font: 500 13px var(--sans); color: var(--ink); background: var(--surface); border: 1px solid var(--line);
+         border-radius: 6px; padding: 7px 14px; cursor: pointer }
+button:hover { border-color: var(--accent) }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+button[disabled] { opacity: .6; cursor: progress }
+
+.alerts { display: grid; gap: 8px }
+.alert { display: flex; gap: 10px; align-items: baseline; padding: 10px 14px; border-radius: 6px; border: 1px solid transparent }
+.alert b { font-weight: 600 }
+.alert.bad { background: var(--bad-soft); color: var(--bad) }
+.alert.warn { background: var(--warn-soft); color: var(--warn) }
+.alert.info { background: var(--accent-soft); color: var(--accent) }
+.alert span { color: var(--ink) }
+
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px }
+.tile { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 4px; align-content: start }
+.tile .label { color: var(--muted); font-size: 12px }
+.tile .value { font: 500 26px/1.2 var(--mono); font-variant-numeric: tabular-nums }
+.tile .sub { color: var(--muted); font-size: 12px }
+.bar { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin-top: 6px }
+.bar i { display: block; height: 100%; background: var(--accent) }
+.bar.over i { background: var(--bad) }
+.bar.near i { background: var(--warn) }
+
+.charts { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; min-width: 0 }
+.panel-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; flex-wrap: wrap }
+.legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--muted) }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 5px; vertical-align: -1px }
+.chart { overflow-x: auto }
+.chart svg { display: block; width: 100%; height: auto; min-width: 360px }
+.chart text { fill: var(--muted); font: 10px var(--mono) }
+.chart .grid { stroke: var(--line); stroke-width: 1 }
+
+.services { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; display: grid; gap: 10px; align-content: start; min-width: 0 }
+.card-head { display: flex; justify-content: space-between; align-items: center; gap: 8px }
+.card-head h3 { margin: 0; font-size: 15px; font-weight: 600 }
+.pill { font-size: 11px; font-weight: 600; letter-spacing: .03em; padding: 2px 8px; border-radius: 99px; white-space: nowrap }
+.pill.good { background: var(--good-soft); color: var(--good) }
+.pill.warn { background: var(--warn-soft); color: var(--warn) }
+.pill.bad { background: var(--bad-soft); color: var(--bad) }
+.pill.off { background: var(--bg); color: var(--muted); border: 1px solid var(--line) }
+dl { margin: 0; display: grid; grid-template-columns: auto auto; gap: 4px 12px }
+dt { color: var(--muted) }
+dd { margin: 0; text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums }
+.card .note { font-size: 12px; color: var(--muted); margin: 0 }
+.card .setup { font-size: 12px; background: var(--bg); border-radius: 6px; padding: 8px 10px; margin: 0 }
+.card .setup code { font-family: var(--mono); font-size: 12px }
+.card ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px }
+.card li { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; font-size: 12px }
+.card li .when { color: var(--muted); font-family: var(--mono) }
+.card li .what { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0 }
+.card .links { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px }
+
+.table-wrap { overflow-x: auto }
+table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 640px }
+th { text-align: left; font-weight: 600; color: var(--muted); font-size: 12px; padding: 6px 8px; border-bottom: 1px solid var(--line) }
+td { padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top }
+td.q { direction: rtl; text-align: right; font-family: "Segoe UI", Arial, sans-serif }
+td.n { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap }
+footer { color: var(--muted); font-size: 12px; max-width: 80ch }
+
+.loading { color: var(--muted); padding: 40px 0; text-align: center }
+
+@media (max-width: 960px) {
+  .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)) }
+  .charts, .services { grid-template-columns: minmax(0, 1fr) }
+}
+@media (prefers-reduced-motion: no-preference) { .bar i { transition: width .4s ease } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Il_legislation · usage and costs</h1>
+      <div class="muted" id="sub">Local dashboard. Keys stay in keys.txt on this computer.</div>
+    </div>
+    <div class="meta">
+      <span id="updated">Loading…</span>
+      <button id="refresh" type="button">Refresh now</button>
+    </div>
+  </header>
+
+  <section class="alerts" id="alerts" aria-live="polite"></section>
+
+  <section class="tiles" id="tiles"><div class="loading">Asking each service for its numbers…</div></section>
+
+  <section class="charts">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Questions per day · last 30 days</h2>
+        <div class="legend">
+          <span><i style="background:var(--s-answered)"></i>Answered</span>
+          <span><i style="background:var(--s-interp)"></i>Interpretive</span>
+          <span><i style="background:var(--s-other)"></i>Not found / refused</span>
+          <span><i style="background:var(--s-error)"></i>Error</span>
+        </div>
+      </div>
+      <div class="chart" id="chart-q"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head">
+        <h2>Claude cost per day (USD)</h2>
+        <span class="legend" id="cost-legend"></span>
+      </div>
+      <div class="chart" id="chart-c"></div>
+    </div>
+  </section>
+
+  <section class="services" id="services"></section>
+
+  <section class="panel">
+    <div class="panel-head"><h2>Latest questions</h2><span class="legend">From the agent's log, newest first</span></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>When</th><th>Question</th><th>Outcome</th><th style="text-align:right">Tokens in / out</th><th style="text-align:right">Seconds</th></tr></thead>
+      <tbody id="recent"></tbody>
+    </table></div>
+  </section>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, attrs = {}, ...kids) => {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "class") n.className = v; else if (k === "style") n.style.cssText = v; else n.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : String(k));
+  return n;
+};
+const fmtInt = (x) => Number(x || 0).toLocaleString("en-US");
+const fmtUsd = (x, d = 2) => "$" + Number(x || 0).toFixed(d);
+const fmtMB = (b) => (b / 1048576).toFixed(0) + " MB";
+const fmtTokens = (x) => x >= 1e6 ? (x / 1e6).toFixed(2) + "M" : x >= 1e3 ? (x / 1e3).toFixed(1) + "k" : String(x || 0);
+const when = (iso) => {
+  if (!iso) return "–";
+  const d = typeof iso === "number" ? new Date(iso) : new Date(iso);
+  return d.toLocaleString("en-GB", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jerusalem" });
+};
+const daysAgo = (iso) => (Date.now() - new Date(iso).getTime()) / 864e5;
+
+const LINKS = {
+  anthropic: [["Console", "https://console.anthropic.com/"]],
+  supabase: [["Usage", "https://supabase.com/dashboard/org/hqnmcshmzteldtrgqgex/usage"],
+             ["Project", "https://supabase.com/dashboard/project/okphyrduubqrrnjkphrw"]],
+  vercel: [["Dashboard", "https://vercel.com/dashboard"]],
+  voyage: [["Dashboard", "https://dashboard.voyageai.com/"]],
+};
+
+let cfg = null;
+const costOf = (r) => (r.input_tokens * cfg.price_in + r.output_tokens * cfg.price_out) / 1e6;
+
+async function load(fresh) {
+  const btn = $("refresh");
+  btn.disabled = true; btn.textContent = "Refreshing…";
+  try {
+    const res = await fetch("/api/data" + (fresh ? "?fresh=1" : ""));
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    render(await res.json());
+  } catch (e) {
+    $("updated").textContent = "Could not reach the dashboard program. Is its window still open? (" + e.message + ")";
+  } finally {
+    btn.disabled = false; btn.textContent = "Refresh now";
+  }
+}
+
+function render(d) {
+  cfg = d.config;
+  $("updated").textContent = "Updated " + when(d.generated_at);
+  const db = d.database || {};
+  const dbOk = !db.error && !db.missing_key;
+  renderAlerts(d, db, dbOk);
+  renderTiles(d, db, dbOk);
+  if (dbOk) { chartQuestions(db.daily); chartCost(db.daily, d.anthropic); renderRecent(db.recent); }
+  else { $("chart-q").replaceChildren(el("p", { class: "muted" }, "No data: the database could not be read.")); $("chart-c").replaceChildren(); $("recent").replaceChildren(); }
+  renderServices(d, db, dbOk);
+  $("footer").replaceChildren(
+    "Claude cost is worked out from the tokens the agent logs for every question, at Sonnet 5.5 list prices (",
+    fmtUsd(cfg.price_in, 0), " per million input tokens, ", fmtUsd(cfg.price_out, 0),
+    " per million output tokens). It includes test runs. Anthropic's billed figure appears only if ANTHROPIC_ADMIN_KEY is set. ",
+    "Supabase and Vercel are on free plans, so their cost is $0 while usage stays inside the allowances shown. ",
+    "Voyage AI has no usage API; check its dashboard.");
+}
+
+function renderAlerts(d, db, dbOk) {
+  const out = [];
+  const add = (level, title, text) => out.push(el("div", { class: "alert " + level }, el("b", {}, title), el("span", {}, text)));
+  if (!dbOk) add("bad", "Database unreachable.", db.missing_key ? "Add DATABASE_URL to keys.txt." : db.error);
+  if (d.supabase && d.supabase.status && d.supabase.status !== "ACTIVE_HEALTHY")
+    add("bad", "Supabase project is " + d.supabase.status + ".", "The website cannot answer until it is restored in the Supabase dashboard.");
+  if (dbOk) {
+    const lim = cfg.limits.db_bytes;
+    if (db.db_bytes > lim) add("bad", "Database is over the free-plan size (" + fmtMB(db.db_bytes) + " of " + fmtMB(lim) + ").",
+      "If the monthly average stays above it, Supabase can restrict the project. The search index on law sections takes most of the space.");
+    else if (db.db_bytes > lim * .85) add("warn", "Database is close to the free-plan size.", fmtMB(db.db_bytes) + " of " + fmtMB(lim) + ".");
+    const last = (db.runs || [])[0];
+    if (!last) add("warn", "No weekly refresh recorded.", "Run refresh.bat to pick up new amendments.");
+    else if (daysAgo(last.started_at) > 8) add("warn", "Last law refresh was " + Math.floor(daysAgo(last.started_at)) + " days ago.", "Run refresh.bat, or schedule it to run weekly.");
+    const today = (db.daily || []).at(-1);
+    const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" }).format(new Date());
+    if (today && today.errors > 0 && today.day.slice(0, 10) === todayKey)
+      add("warn", today.errors + " question(s) failed today.", "See Latest questions below.");
+    if (db.today && db.today.requests >= cfg.limits.questions_day * .8)
+      add("warn", "Close to today's question limit.", fmtInt(db.today.requests) + " of " + fmtInt(cfg.limits.questions_day) + ".");
+  }
+  $("alerts").replaceChildren(...out);
+}
+
+function tile(label, value, sub, bar) {
+  const t = el("div", { class: "tile" }, el("div", { class: "label" }, label), el("div", { class: "value" }, value));
+  if (sub) t.append(el("div", { class: "sub" }, sub));
+  if (bar) {
+    const pct = Math.min(100, bar.used / bar.max * 100);
+    t.append(el("div", { class: "bar" + (bar.used > bar.max ? " over" : pct > 85 ? " near" : ""), role: "img",
+      "aria-label": Math.round(bar.used / bar.max * 100) + "% used" }, el("i", { style: "width:" + pct + "%" })));
+  }
+  return t;
+}
+
+function renderTiles(d, db, dbOk) {
+  if (!dbOk) { $("tiles").replaceChildren(tile("Claude cost this month", "–"), tile("Questions this month", "–"), tile("Average answer time", "–"), tile("Database size", "–")); return; }
+  const m = db.month;
+  const est = costOf(m);
+  const billed = d.anthropic && d.anthropic.month_usd != null ? "Anthropic billed: " + fmtUsd(d.anthropic.month_usd) : "Estimated from logged tokens";
+  const perQ = m.questions ? est / m.questions : 0;
+  $("tiles").replaceChildren(
+    tile("Claude cost this month", fmtUsd(est), billed + (m.questions ? " · " + fmtUsd(perQ, 3) + " per question" : "")),
+    tile("Questions this month", fmtInt(m.questions),
+      "Today " + fmtInt(db.today.requests) + " of " + fmtInt(cfg.limits.questions_day) + " allowed" + (m.limited ? " · " + fmtInt(m.limited) + " blocked by rate limit" : ""),
+      { used: db.today.requests, max: cfg.limits.questions_day }),
+    tile("Average answer time", m.avg_ms ? (m.avg_ms / 1000).toFixed(1) + " s" : "–",
+      fmtInt(m.answered) + " answered · " + fmtInt(m.errors) + " errors this month"),
+    tile("Database size", fmtMB(db.db_bytes), "Free plan allows " + fmtMB(cfg.limits.db_bytes), { used: db.db_bytes, max: cfg.limits.db_bytes }),
+  );
+}
+
+// one scale for marks, ticks and labels
+function axisMax(v) { if (v <= 0) return 1; const p = Math.pow(10, Math.floor(Math.log10(v))); for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p; return 10 * p; }
+
+function last30(daily) {
+  const by = Object.fromEntries((daily || []).map((r) => [r.day.slice(0, 10), r]));
+  const out = [];
+  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jerusalem" });
+  for (let i = 29; i >= 0; i--) {
+    const key = fmt.format(new Date(Date.now() - i * 864e5));
+    out.push({ day: key, ...(by[key] || { questions: 0, answered: 0, interpretive: 0, not_found: 0, refused: 0, errors: 0, input_tokens: 0, output_tokens: 0 }) });
+  }
+  return out;
+}
+
+function svgChart(days, stacks, max, fmtTick, W = 640) {
+  const H = 200, L = 40, R = 8, T = 10, B = 26;
+  const ns = "http://www.w3.org/2000/svg";
+  const s = (tag, a) => { const n = document.createElementNS(ns, tag); for (const k in a) n.setAttribute(k, a[k]); return n; };
+  const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, role: "img" });
+  const y = (v) => T + (H - T - B) * (1 - v / max);
+  for (let i = 0; i <= 4; i++) {
+    const v = max * i / 4;
+    svg.append(s("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: "grid" }));
+    const t = s("text", { x: L - 6, y: y(v) + 3, "text-anchor": "end" }); t.textContent = fmtTick(v); svg.append(t);
+  }
+  const bw = (W - L - R) / days.length;
+  days.forEach((d, i) => {
+    let base = 0;
+    const g = s("g", {});
+    const tip = s("title", {}); tip.textContent = stacks.tip(d); g.append(tip);
+    for (const [key, color] of stacks.parts) {
+      const v = typeof key === "function" ? key(d) : d[key] || 0;
+      if (v > 0) g.append(s("rect", { x: L + i * bw + 1.5, width: Math.max(1, bw - 3), y: y(base + v), height: y(base) - y(base + v), fill: color, rx: 1.5 }));
+      base += v;
+    }
+    svg.append(g);
+    if (i % 5 === 4 || i === days.length - 1) {
+      const t = s("text", { x: L + i * bw + bw / 2, y: H - 8, "text-anchor": "middle" });
+      t.textContent = d.day.slice(8, 10) + "/" + d.day.slice(5, 7); svg.append(t);
+    }
+  });
+  return svg;
+}
+
+function chartQuestions(daily) {
+  const days = last30(daily);
+  const max = axisMax(Math.max(...days.map((d) => d.questions)));
+  $("chart-q").replaceChildren(svgChart(days, {
+    parts: [["answered", "var(--s-answered)"], ["interpretive", "var(--s-interp)"],
+            [(d) => (d.not_found || 0) + (d.refused || 0), "var(--s-other)"], ["errors", "var(--s-error)"]],
+    tip: (d) => `${d.day}: ${d.questions} questions (${d.answered} answered, ${d.interpretive} interpretive, ${d.not_found + d.refused} not found or refused, ${d.errors} errors)`,
+  }, max, (v) => Math.round(v)));
+}
+
+function chartCost(daily, anth) {
+  const days = last30(daily).map((d) => ({ ...d, usd: costOf(d) }));
+  const total = days.reduce((a, d) => a + d.usd, 0);
+  const max = axisMax(Math.max(...days.map((d) => d.usd)));
+  $("chart-c").replaceChildren(svgChart(days, {
+    parts: [["usd", "var(--accent)"]],
+    tip: (d) => `${d.day}: ${fmtUsd(d.usd)} · ${fmtTokens(d.input_tokens)} in / ${fmtTokens(d.output_tokens)} out`,
+  }, max, (v) => "$" + (max < 1 ? v.toFixed(2) : v.toFixed(v < 10 ? 1 : 0)), 420));
+  $("cost-legend").textContent = "30 days: " + fmtUsd(total) + " estimated";
+}
+
+function renderRecent(rows) {
+  const label = { answered: "Answered", interpretive: "Interpretive", not_found: "Not found", refused: "Refused", error: "Error", limited: "Rate limited" };
+  const cls = { answered: "good", interpretive: "good", not_found: "off", refused: "off", error: "bad", limited: "warn" };
+  $("recent").replaceChildren(...(rows || []).map((r) => el("tr", {},
+    el("td", { class: "n", style: "text-align:left" }, when(r.created_at)),
+    el("td", { class: "q" }, r.question || ""),
+    el("td", {}, el("span", { class: "pill " + (cls[r.outcome] || "off") }, label[r.outcome] || r.outcome || "–")),
+    el("td", { class: "n" }, r.input_tokens != null ? fmtTokens(r.input_tokens) + " / " + fmtTokens(r.output_tokens) : "–"),
+    el("td", { class: "n" }, r.duration_ms ? (r.duration_ms / 1000).toFixed(1) : "–"))));
+}
+
+function card(name, pill, body, links) {
+  const c = el("div", { class: "card" }, el("div", { class: "card-head" }, el("h3", {}, name), el("span", { class: "pill " + pill[0] }, pill[1])));
+  c.append(...body.filter(Boolean));
+  if (links) c.append(el("div", { class: "links" }, links.map(([t, h]) => el("a", { href: h, target: "_blank", rel: "noopener" }, t + " ↗"))));
+  return c;
+}
+const dl = (pairs) => el("dl", {}, pairs.flatMap(([k, v]) => [el("dt", {}, k), el("dd", {}, v)]));
+const setup = (key, what) => el("p", { class: "setup" }, "Not set up. Add ", el("code", {}, key + "=…"), " to keys.txt, then restart the dashboard. ", what);
+const errNote = (e) => el("p", { class: "setup" }, "Could not read: " + e);
+
+function renderServices(d, db, dbOk) {
+  const cards = [];
+  // Anthropic
+  const a = d.anthropic || {};
+  const m = dbOk ? db.month : null;
+  cards.push(card("Anthropic · Claude API", a.month_usd != null ? ["good", "Billing linked"] : ["good", "From agent log"], [
+    m && dl([["Input tokens (month)", fmtTokens(m.input_tokens)], ["Output tokens (month)", fmtTokens(m.output_tokens)],
+             ["Estimated cost", fmtUsd(costOf(m))], ...(a.month_usd != null ? [["Billed by Anthropic", fmtUsd(a.month_usd)]] : [])]),
+    a.missing_key ? el("p", { class: "note" }, "For Anthropic's own billed figure, add ANTHROPIC_ADMIN_KEY (an Admin key, available only to Console organizations).") : null,
+    a.error ? errNote(a.error) : null,
+  ], LINKS.anthropic));
+  // Supabase
+  const sb = d.supabase || {};
+  const sbPill = sb.status ? (sb.status === "ACTIVE_HEALTHY" ? ["good", "Running"] : ["bad", sb.status]) :
+                 dbOk ? (db.db_bytes > cfg.limits.db_bytes ? ["bad", "Over size"] : ["good", "Reachable"]) : ["bad", "Unreachable"];
+  cards.push(card("Supabase · database and agent", sbPill, [
+    dbOk && dl([["Plan", "Free · $0"], ["Database size", fmtMB(db.db_bytes) + " / " + fmtMB(cfg.limits.db_bytes)],
+                ["Agent calls (month)", fmtInt(db.month.edge_calls) + " / " + fmtInt(cfg.limits.edge_calls_month)],
+                ...(sb.api_7d ? [["API requests (7 days)", fmtInt(sb.api_7d.total_rest_requests + sb.api_7d.total_auth_requests + sb.api_7d.total_storage_requests + sb.api_7d.total_realtime_requests)]] : []),
+                ...(db.tables || []).slice(0, 3).map((t) => ["Table " + t.name, fmtMB(t.bytes)])]),
+    sb.missing_key ? setup("SUPABASE_ACCESS_TOKEN", "It shows whether the project is running or paused.") : null,
+    sb.error ? errNote(sb.error) : null,
+    sb.api_7d_error ? el("p", { class: "note" }, "API request counts unavailable: " + sb.api_7d_error) : null,
+  ], LINKS.supabase));
+  // Vercel
+  const v = d.vercel || {};
+  const latest = (v.deployments || [])[0];
+  const vPill = latest ? (latest.state === "READY" ? ["good", "Live"] : latest.state === "ERROR" ? ["bad", "Deploy failed"] : ["warn", latest.state]) : v.missing_key ? ["off", "Not set up"] : ["off", "–"];
+  cards.push(card("Vercel · website", vPill, [
+    dl([["Plan", "Hobby · $0"], ["Address", "illegislation-web.vercel.app"]]),
+    v.deployments ? el("ul", {}, v.deployments.slice(0, 4).map((x) => el("li", {},
+      el("span", { class: "when" }, when(x.created)), el("span", { class: "what" }, (x.state || "") + (x.commit ? " · " + x.commit : ""))))) : null,
+    v.missing_key ? setup("VERCEL_TOKEN", "It lists the latest website deployments.") : null,
+    v.error ? errNote(v.error) : null,
+  ], [["Open site", cfg.site_url], ...LINKS.vercel]));
+  // Voyage
+  cards.push(card("Voyage AI · search embeddings", ["off", "Dashboard only"], [
+    dbOk ? dl([["Questions embedded (month)", fmtInt(db.month.questions)], ["Law sections stored", fmtInt(db.sections)]]) : null,
+    el("p", { class: "note" }, "Voyage has no usage API. Each question uses one small embedding; the weekly refresh embeds only laws that changed."),
+  ], LINKS.voyage));
+  // Weekly refresh
+  const runs = dbOk ? db.runs || [] : [];
+  const lr = runs[0];
+  const rPill = !lr ? ["warn", "Never run"] : daysAgo(lr.started_at) > 8 ? ["warn", Math.floor(daysAgo(lr.started_at)) + " days ago"] : ["good", "Up to date"];
+  cards.push(card("Weekly law refresh · this PC", rPill, [
+    runs.length ? el("ul", {}, runs.slice(0, 4).map((r) => el("li", {},
+      el("span", { class: "when" }, when(r.started_at)),
+      el("span", { class: "what" }, fmtInt(r.laws_seen) + " laws checked, " + fmtInt(r.laws_changed) + " changed" + (r.error_count ? ", " + r.error_count + " errors" : ""))))) : null,
+    el("p", { class: "note" }, "Runs from refresh.bat. Costs only the Voyage embeddings for changed laws."),
+  ]));
+  // Law coverage
+  if (dbOk && db.laws) {
+    const names = { verified: "Text verified", outdated: "Text older than latest amendment", no_text: "No full text linked", error: "Fetch error", not_in_force: "No longer in force" };
+    cards.push(card("Law coverage", ["off", fmtInt(db.laws.reduce((a, r) => a + r.n, 0)) + " laws"],
+      [dl(db.laws.map((r) => [names[r.status] || r.status, fmtInt(r.n)]))]));
+  }
+  $("services").replaceChildren(...cards);
+}
+
+$("refresh").addEventListener("click", () => load(true));
+load(false);
+setInterval(() => load(false), 5 * 60 * 1000);
+</script>
+</body>
+</html>
